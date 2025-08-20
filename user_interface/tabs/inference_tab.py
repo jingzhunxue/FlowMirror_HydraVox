@@ -1,10 +1,15 @@
 import os, io, base64, requests, numpy as np, gradio as gr
 from typing import Tuple, List
 import logging
+import soundfile as sf
 
 logger = logging.getLogger("inference_tab")
 
 BACKEND = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+
+# 默认参考音频配置
+DEFAULT_REFERENCE_AUDIO = "/home/ecs-user/code/zeying/Audio/HydraVox/yahan.wav"
+DEFAULT_REFERENCE_TEXT = "他就给宋神宗上书，他说可以免去我的官职，但是我要赎回我哥哥的性命。"
 
 def get_speakers() -> List[str]:
     """从后端获取说话人列表"""
@@ -179,22 +184,43 @@ def synthesis_wrapper(
         logger.error(f"未知的合成模式: {synthesis_mode}")
         return None
 
+def load_default_reference_audio():
+    """加载默认参考音频"""
+    try:
+        if os.path.exists(DEFAULT_REFERENCE_AUDIO):
+            audio_data, sample_rate = sf.read(DEFAULT_REFERENCE_AUDIO, dtype="float32")
+            return (sample_rate, audio_data), DEFAULT_REFERENCE_TEXT
+        else:
+            logger.warning(f"默认参考音频文件不存在: {DEFAULT_REFERENCE_AUDIO}")
+            return None, DEFAULT_REFERENCE_TEXT
+    except Exception as e:
+        logger.error(f"加载默认参考音频失败: {e}")
+        return None, DEFAULT_REFERENCE_TEXT
+
 def toggle_synthesis_mode(mode: str):
     """切换合成模式时的界面更新"""
     if mode == "预设说话人":
         return (
             gr.update(visible=True),   # speaker_row 显示
             gr.update(visible=False),  # zero_shot_row 隐藏
+            gr.update(value=""),       # 清空prompt_text
+            gr.update(value=None),     # 清空prompt_audio
         )
     elif mode == "Zero-shot":
+        # 加载默认参考音频
+        default_audio, default_text = load_default_reference_audio()
         return (
             gr.update(visible=False),  # speaker_row 隐藏
             gr.update(visible=True),   # zero_shot_row 显示
+            gr.update(value=default_text),  # 设置默认文本
+            gr.update(value=default_audio), # 设置默认音频
         )
     else:
         return (
             gr.update(visible=True),   # 默认显示预设说话人
             gr.update(visible=False),
+            gr.update(value=""),       # 清空prompt_text
+            gr.update(value=None),     # 清空prompt_audio
         )
 
 def clear_inputs():
@@ -309,18 +335,23 @@ def create_inference_tab():
                         </div>
                         """
                     )
+                    # 获取默认音频和文本
+                    default_audio, default_text = load_default_reference_audio()
+                    
                     prompt_text = gr.Textbox(
                         label="参考音频对应文本 (ASR内容)",
                         placeholder="请输入参考音频中说话人说的内容...",
-                        lines=2
+                        lines=2,
+                        value=default_text
                     )
                     gr.Markdown("*请准确输入参考音频中的文字内容，这将用于语音克隆*", elem_classes=["tiny-muted"])
                     
                     prompt_audio = gr.Audio(
                         label="参考音频",
-                        type="numpy"
+                        type="numpy",
+                        value=default_audio
                     )
-                    gr.Markdown("*上传包含目标说话人声音的参考音频（建议3-10秒）*", elem_classes=["tiny-muted"])
+                    gr.Markdown("*已预加载默认参考音频 (yahan.wav)，你也可以上传自己的音频文件*", elem_classes=["tiny-muted"])
         
         with gr.Row():
             with gr.Accordion("高级设置", open=False):
@@ -349,7 +380,7 @@ def create_inference_tab():
         synthesis_mode.change(
             fn=toggle_synthesis_mode,
             inputs=[synthesis_mode],
-            outputs=[speaker_row, zero_shot_row],
+            outputs=[speaker_row, zero_shot_row, prompt_text, prompt_audio],
         )
         
         # 合成按钮
