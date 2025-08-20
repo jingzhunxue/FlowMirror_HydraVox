@@ -654,7 +654,7 @@ def inference_tts(model_manager, text: str, spk_id: str) -> torch.Tensor:
 
         cosine_sim = torch.nn.functional.cosine_similarity(generated_embedding, speaker_embedding, dim=0)
 
-        if cosine_sim < 0.55 and model_manager.zero_shot_speakers is not None:
+        if cosine_sim.item() < 0.55 and model_manager.zero_shot_speakers is not None:
             logger.warning(f"cosine_sim: {cosine_sim}, fallback to zero-shot")
             prompt_text = model_manager.zero_shot_speakers[spk_id]['prompt_text']
             prompt_audio = model_manager.zero_shot_speakers[spk_id]['prompt_speech']

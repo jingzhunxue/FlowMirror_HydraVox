@@ -54,14 +54,27 @@ def worker_process_tts(
         task_type = task['task_type']
         try:
             if task_type == 'zero_shot':
-                result = inference_zero_shot(model_manager, task['text'], task['prompt_text'], task['prompt_audio'], task['prompt_sample_rate'])
+                # 直接调用inference_zero_shot并构建返回字典
+                output_audio = inference_zero_shot(
+                    model_manager, 
+                    task['tts_text'], 
+                    task['prompt_text'], 
+                    task['prompt_audio'], 
+                    task['prompt_sample_rate']
+                )
+                result = {
+                    "output_audio": output_audio,
+                    "sample_rate": model_manager.configs['sample_rate'],
+                    "format": task.get('output_format', "wav"),
+                    "duration": output_audio.shape[-1] / model_manager.configs['sample_rate']
+                }
             elif task_type == 'tts':
                 result = text_to_speech(model_manager, task['text'], task['speaker_id'])
             elif task_type == 'load_pt':
                 result = model_manager.load_pt(task['llm_pt'], task['flow_pt'])
         except Exception as e:
             logger.error(f"[TTS Worker-{worker_id}] Error: {e}")
-            result = None
+            result = {"error": str(e)}
 
         result_dict[task['id']] = result
 

@@ -8,6 +8,21 @@ def run_api(host: str, port: int):
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 def run_ui(host: str, port: int, backend_url: str):
+    import requests
+    import time
+    
+    # 等待API服务启动
+    max_retries = 30  # 最多等待30秒
+    for i in range(max_retries):
+        try:
+            requests.get(f"{backend_url}/api/v1/speakers", timeout=2)
+            print(f"[main] API is ready after {i+1} attempts")
+            break
+        except:
+            if i == max_retries - 1:
+                print(f"[main] Warning: API not ready after {max_retries} attempts, starting UI anyway")
+            time.sleep(1)
+    
     os.environ["BACKEND_URL"] = backend_url
     from user_interface.main_ui import launch_ui
     launch_ui(server_name=host, server_port=port)
