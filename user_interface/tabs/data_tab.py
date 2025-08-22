@@ -101,6 +101,9 @@ def _convert_script_path() -> Path:
 def _vad_script_path() -> Path:
     return _project_root() / "scripts/preprocess/vad_processor.py"
 
+def _asr_script_path() -> Path:
+    return _project_root() / "scripts/preprocess/transcribe_to_dataset.py"
+
 
 def _generate_default_output_dir(input_dir: str, suffix: str) -> str:
     if not input_dir:
@@ -389,6 +392,173 @@ def run_stage2(input_dir: str,
         yield (last_pct if last_pct >= 0 else 0), f"❌ 失败 · 用时 {elapsed}s", "\n".join(log_lines), gr.update()
 
 
+def preview_stage3(input_dir: str, output_dir: str):
+    if not input_dir or not os.path.isdir(input_dir):
+        return "❗ 输入目录无效"
+    if not output_dir:
+        output_dir = _generate_default_output_dir(input_dir, "_asr")
+    wav_files = list(Path(input_dir).rglob("*.wav"))
+    mp3_files = list(Path(input_dir).rglob("*.mp3"))
+    return f"将转录 {len(wav_files)} 个 .wav 与 {len(mp3_files)} 个 .mp3，输出到 {output_dir}"
+
+
+def run_stage3(input_dir: str,
+               output_dir: str,
+               device_choice: str,
+               num_processes: float,
+               link_enabled: bool):
+    """运行 ASR 转录脚本。
+    输出：(progress_percent, status_text, log_text, next_stage_input)
+    """
+    if not input_dir or not os.path.isdir(input_dir):
+        yield 0, "❗ 输入目录无效", "", gr.update()
+        return
+    if not output_dir:
+        output_dir = _generate_default_output_dir(input_dir, "_asr")
+
+    script_path = _asr_script_path()
+    if not script_path.exists():
+        yield 0, f"找不到脚本: {script_path}", "", gr.update()
+        return
+
+    # 设备与进程选择
+    chosen = device_choice
+    dev_detect, gpu_count, _detail = _auto_detect_device_and_processes()
+    if chosen == "自动":
+        chosen = "GPU" if dev_detect == "GPU" else "CPU"
+    use_cuda = (chosen == "GPU" and dev_detect == "GPU")
+    device_flag = "cuda" if use_cuda else "cpu"
+    try:
+        nproc = max(1, int(num_processes))
+    except Exception:
+        nproc = 1
+
+    gpu_devices = []
+    if use_cuda:
+        try:
+            import torch  # type: ignore
+            if torch.cuda.is_available():
+                cnt = torch.cuda.device_count()
+                take = min(nproc, cnt)
+                gpu_devices = list(range(take))
+        except Exception:
+            gpu_devices = []
+            device_flag = "cpu"
+
+    cmd = [
+        sys.executable,
+        str(script_path),
+        "--src", str(input_dir),
+        "--dst", str(output_dir),
+        "--device", device_flag,
+        "--num_workers", str(nproc),
+    ]
+    if device_flag == "cuda" and gpu_devices:
+        cmd.extend(["--gpu_devices", ",".join(str(x) for x in gpu_devices)])
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+    except Exception as e:
+        yield 0, f"启动失败: {e}", "", gr.update()
+        return
+
+    start_time = time.time()
+    log_lines: List[str] = []
+    last_pct = -1
+    total_files = None
+    # 多进程解析数据（可选，若解析失败则回退到日志）
+    worker_chunks = {}
+    worker_pct = {}
+    num_workers_detected = None
+
+    yield 0, "ASR 转录中...", "", gr.update()
+
+    try:
+        assert proc.stdout is not None
+        for raw_line in proc.stdout:
+            line = raw_line.rstrip()
+            if not line:
+                continue
+            log_lines.append(line)
+            if len(log_lines) > 200:
+                log_lines = log_lines[-200:]
+
+            # 解析总数
+            m_total = re.search(r"找到\s+(\d+)\s+个\s+\.wav\s+文件和\s+(\d+)\s+个\s+\.mp3\s+文件", line)
+            if m_total:
+                try:
+                    total_files = int(m_total.group(1)) + int(m_total.group(2))
+                except Exception:
+                    pass
+
+            # 解析多进程总体信息
+            m_multi = re.search(r"启动多进程处理:\s*(\d+)\s*个工作进程处理\s*(\d+)\s*个文件", line)
+            if m_multi:
+                try:
+                    num_workers_detected = int(m_multi.group(1))
+                    total_files = int(m_multi.group(2))
+                except Exception:
+                    pass
+            m_chunk = re.search(r"启动工作进程\s*(\d+)，分配\s*(\d+)\s*个文件", line)
+            if m_chunk:
+                try:
+                    wid = int(m_chunk.group(1)); size = int(m_chunk.group(2))
+                    worker_chunks[wid] = size
+                except Exception:
+                    pass
+
+            # 解析单进度（tqdm 百分比）
+            m_asr_pct = re.search(r"ASR.*?(\d+)%\|", line)
+            if m_asr_pct:
+                try:
+                    pct = int(m_asr_pct.group(1))
+                    last_pct = pct
+                except Exception:
+                    pass
+
+            m_worker_pct = re.search(r"Worker\s*(\d+).*?(\d+)%\|", line)
+            if m_worker_pct:
+                try:
+                    wid = int(m_worker_pct.group(1)); pct = int(m_worker_pct.group(2))
+                    worker_pct[wid] = pct
+                    if worker_chunks:
+                        total_chunk = sum(worker_chunks.values()) or len(worker_pct)
+                        weighted = 0
+                        for w, p in worker_pct.items():
+                            weight = worker_chunks.get(w, 1)
+                            weighted += p * weight
+                        last_pct = int(weighted / total_chunk)
+                    else:
+                        # 平均
+                        last_pct = int(sum(worker_pct.values()) / max(1, len(worker_pct)))
+                except Exception:
+                    pass
+
+            elapsed = int(time.time() - start_time)
+            status = f"进行中 · 用时 {elapsed}s"
+            yield (last_pct if last_pct >= 0 else 0), status, "\n".join(log_lines), gr.update()
+
+        ret = proc.wait()
+    except Exception as e:
+        yield (last_pct if last_pct >= 0 else 0), f"❌ 运行异常: {e}", "\n".join(log_lines), gr.update()
+        return
+
+    elapsed = int(time.time() - start_time)
+    if proc.returncode == 0:
+        msg = f"✅ 完成 · 用时 {elapsed}s"
+        next_input = output_dir if link_enabled else gr.update()
+        yield 100, msg, "\n".join(log_lines), next_input
+    else:
+        yield (last_pct if last_pct >= 0 else 0), f"❌ 失败 · 用时 {elapsed}s", "\n".join(log_lines), gr.update()
+
+
 def create_data_tab():
     """创建数据处理tab界面"""
     with gr.Tab("📊 数据处理"):
@@ -396,7 +566,7 @@ def create_data_tab():
         device_default, proc_default, device_detail = _auto_detect_device_and_processes()
         with gr.Group():
             link_stages = gr.Checkbox(value=False, label="自动串联阶段（上阶段输出作为下阶段输入）")
-
+ 
         # 阶段1：格式转换与重采样
         with gr.Accordion("阶段1｜格式转换与重采样", open=True):
             with gr.Row():
@@ -448,6 +618,13 @@ def create_data_tab():
                 s3_device = gr.Dropdown(choices=["自动", "CPU", "GPU"], value=("GPU" if device_default=="GPU" else "CPU"), label="设备")
                 s3_processes = gr.Number(value=proc_default, label="进程数")
                 s3_detect_btn = gr.Button("🔄 刷新设备", variant="secondary")
+            with gr.Row():
+                s3_preview_btn = gr.Button("👀 预览", variant="secondary")
+                s3_start_btn = gr.Button("▶️ 开始处理", variant="primary")
+            with gr.Row():
+                s3_progress = gr.Slider(0, 100, value=0, step=1, label="进度 (%)", interactive=False)
+                s3_status = gr.Textbox(label="状态", interactive=False)
+                s3_log = gr.Textbox(label="运行日志", lines=4, interactive=False)
             s3_device_info = gr.Textbox(value=device_detail, label="设备检测", interactive=False)
 
         # 阶段4：提取训练用 Token
@@ -461,9 +638,10 @@ def create_data_tab():
                 s4_processes = gr.Number(value=proc_default, label="进程数")
                 s4_detect_btn = gr.Button("🔄 刷新设备", variant="secondary")
             s4_device_info = gr.Textbox(value=device_detail, label="设备检测", interactive=False)
-
-        # 事件绑定（预处理）
-        # 阶段1：自动同步输出、链到阶段2输入
+         # ---------------- 新增（结束） ----------------
+ 
+         # 事件绑定（预处理）
+         # 阶段1：自动同步输出、链到阶段2输入
         s1_input_dir.change(
             fn=lambda d, a: _sync_output_dir(d, a, "_resample"),
             inputs=[s1_input_dir, s1_auto_sync],
@@ -548,6 +726,18 @@ def create_data_tab():
             fn=run_stage2,
             inputs=[s2_input_dir, s2_output_dir, s2_threshold, s2_min_speech_ms, s2_min_silence_ms, s2_pad_ms, s2_min_seg, s2_max_seg, link_stages],
             outputs=[s2_progress, s2_status, s2_log, s3_input_dir],
+        )
+
+        # 阶段3：预览与开始处理
+        s3_preview_btn.click(
+            fn=preview_stage3,
+            inputs=[s3_input_dir, s3_output_dir],
+            outputs=s3_status,
+        )
+        s3_start_btn.click(
+            fn=run_stage3,
+            inputs=[s3_input_dir, s3_output_dir, s3_device, s3_processes, link_stages],
+            outputs=[s3_progress, s3_status, s3_log, s4_input_dir],
         )
 
         # 阶段3/4：刷新设备

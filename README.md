@@ -36,7 +36,7 @@
 ## ✨ Highlights
 
 * **Multi‑Head AR Decoding** — Predict multiple speech tokens per step → **lower latency** and **higher throughput** under the same even better quality target.
-* **Ready‑to‑use WebUI** — Inference, flash batch synthesis(comming soon), fine‑tuning(comming soon), speaker mgmt, logs/plots.
+* **Ready‑to‑use WebUI** — Inference, flash batch synthesis, fine‑tuning(comming soon), speaker mgmt, logs/plots.
 * **Hot-load LoRA for emotion/style**(comming soon) — Load/unload adapters at runtime per utterance; stack multiple with per-adapter scaling (e.g. `--lora happy.safetensors:0.6,energetic.safetensors:0.3`).
 * **SFT implement** — SFT implement derived from CosyVoice2.0.
 * **Reproducible scripts** — One‑command demo and fully version‑locked configs.
