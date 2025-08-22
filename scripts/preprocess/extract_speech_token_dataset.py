@@ -29,11 +29,11 @@ import whisper
 
 # ----------- 模型路径 -------------
 TOKENIZER_ONNX_PATH = Path(
-    "models/CosyVoice2-0.5B/speech_tokenizer_v2.onnx"
+    "jzx-ai-lab/HydraVox/speech_tokenizer_v2.onnx"
 ).expanduser().resolve()
 
 # 本地模型路径
-CAMPPLUS_MODEL_DIR = Path("models/speech_campplus_sv_zh-cn_16k-common").resolve()
+CAMPPLUS_MODEL_DIR = Path("jzx-ai-lab/speech_campplus_sv_zh-cn_16k-common").resolve()
 
 # 若需要自定义 GPU 数，修改此处
 NUM_SESSIONS_PER_PROC = 1

@@ -105,6 +105,10 @@ def _asr_script_path() -> Path:
     return _project_root() / "scripts/preprocess/transcribe_to_dataset.py"
 
 
+def _token_script_path() -> Path:
+    return _project_root() / "scripts/preprocess/extract_speech_token_dataset.py"
+
+
 def _generate_default_output_dir(input_dir: str, suffix: str) -> str:
     if not input_dir:
         return ""
@@ -559,6 +563,129 @@ def run_stage3(input_dir: str,
         yield (last_pct if last_pct >= 0 else 0), f"❌ 失败 · 用时 {elapsed}s", "\n".join(log_lines), gr.update()
 
 
+
+def preview_stage4(input_dir: str, output_dir: str):
+    if not input_dir or not os.path.isdir(input_dir):
+        return "❗ 输入目录无效（需要 Stage3 生成的 HuggingFace 数据集目录）"
+    if not output_dir:
+        output_dir = _generate_default_output_dir(input_dir, "_token")
+    try:
+        from datasets import load_from_disk  # type: ignore
+        ds = load_from_disk(str(input_dir))
+        return f"将处理 {len(ds)} 个样本，输出至 {output_dir}"
+    except Exception:
+        return f"将尝试处理输入数据集，输出至 {output_dir}"
+
+
+def run_stage4(input_dir: str,
+               output_dir: str,
+               device_choice: str,
+               num_processes: float):
+    """运行 Token 提取脚本。
+    输出：(progress_percent, status_text, log_text)
+    """
+    if not input_dir or not os.path.isdir(input_dir):
+        yield 0, "❗ 输入目录无效", ""
+        return
+    if not output_dir:
+        output_dir = _generate_default_output_dir(input_dir, "_token")
+
+    script_path = _token_script_path()
+    if not script_path.exists():
+        yield 0, f"找不到脚本: {script_path}", ""
+        return
+
+    # 设备与进程选择
+    chosen = device_choice
+    dev_detect, gpu_count, _detail = _auto_detect_device_and_processes()
+    if chosen == "自动":
+        chosen = "GPU" if dev_detect == "GPU" else "CPU"
+    use_cuda = (chosen == "GPU" and dev_detect == "GPU")
+    device_flag = "cuda" if use_cuda else "cpu"
+    try:
+        nproc = max(1, int(num_processes))
+    except Exception:
+        nproc = 1
+
+    cmd = [
+        sys.executable,
+        str(script_path),
+        "--input", str(input_dir),
+        "--output", str(output_dir),
+        "--device", device_flag,
+        "--num-proc", str(nproc),
+    ]
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+    except Exception as e:
+        yield 0, f"启动失败: {e}", ""
+        return
+
+    start_time = time.time()
+    log_lines: List[str] = []
+    last_pct = -1
+    total_samples = None
+
+    yield 0, "Token 提取中...", ""
+
+    try:
+        assert proc.stdout is not None
+        for raw_line in proc.stdout:
+            line = raw_line.rstrip()
+            if not line:
+                continue
+            log_lines.append(line)
+            if len(log_lines) > 200:
+                log_lines = log_lines[-200:]
+
+            # 解析数据集总量
+            m_total = re.search(r"Loaded dataset:\s*(\d+)", line)
+            if m_total:
+                try:
+                    total_samples = int(m_total.group(1))
+                except Exception:
+                    pass
+
+            # 解析 tqdm 百分比
+            m_pct = re.search(r"(\d+)%\|", line)
+            if m_pct:
+                try:
+                    last_pct = int(m_pct.group(1))
+                except Exception:
+                    pass
+
+            # 完成提示
+            if "✅ Token 提取完成" in line or "All Finished" in line:
+                last_pct = 100
+
+            elapsed = int(time.time() - start_time)
+            if total_samples and last_pct >= 0:
+                done = int(total_samples * last_pct / 100)
+                status = f"进行中: {done}/{total_samples} · 用时 {elapsed}s"
+            else:
+                status = f"进行中 · 用时 {elapsed}s"
+            yield (last_pct if last_pct >= 0 else 0), status, "\n".join(log_lines)
+
+        ret = proc.wait()
+    except Exception as e:
+        yield (last_pct if last_pct >= 0 else 0), f"❌ 运行异常: {e}", "\n".join(log_lines)
+        return
+
+    elapsed = int(time.time() - start_time)
+    if proc.returncode == 0:
+        yield 100, f"✅ 完成 · 用时 {elapsed}s", "\n".join(log_lines)
+    else:
+        yield (last_pct if last_pct >= 0 else 0), f"❌ 失败 · 用时 {elapsed}s", "\n".join(log_lines)
+
+
 def create_data_tab():
     """创建数据处理tab界面"""
     with gr.Tab("📊 数据处理"):
@@ -623,8 +750,8 @@ def create_data_tab():
                 s3_start_btn = gr.Button("▶️ 开始处理", variant="primary")
             with gr.Row():
                 s3_progress = gr.Slider(0, 100, value=0, step=1, label="进度 (%)", interactive=False)
-                s3_status = gr.Textbox(label="状态", interactive=False)
-                s3_log = gr.Textbox(label="运行日志", lines=4, interactive=False)
+            s3_status = gr.Textbox(label="状态", interactive=False)
+            s3_log = gr.Textbox(label="运行日志", lines=4, interactive=False)
             s3_device_info = gr.Textbox(value=device_detail, label="设备检测", interactive=False)
 
         # 阶段4：提取训练用 Token
@@ -637,6 +764,13 @@ def create_data_tab():
                 s4_device = gr.Dropdown(choices=["自动", "CPU", "GPU"], value=("GPU" if device_default=="GPU" else "CPU"), label="设备")
                 s4_processes = gr.Number(value=proc_default, label="进程数")
                 s4_detect_btn = gr.Button("🔄 刷新设备", variant="secondary")
+            with gr.Row():
+                s4_preview_btn = gr.Button("👀 预览", variant="secondary")
+                s4_start_btn = gr.Button("▶️ 开始处理", variant="primary")
+            with gr.Row():
+                s4_progress = gr.Slider(0, 100, value=0, step=1, label="进度 (%)", interactive=False)
+            s4_status = gr.Textbox(label="状态", interactive=False)
+            s4_log = gr.Textbox(label="运行日志", lines=4, interactive=False)
             s4_device_info = gr.Textbox(value=device_detail, label="设备检测", interactive=False)
          # ---------------- 新增（结束） ----------------
  
@@ -738,6 +872,18 @@ def create_data_tab():
             fn=run_stage3,
             inputs=[s3_input_dir, s3_output_dir, s3_device, s3_processes, link_stages],
             outputs=[s3_progress, s3_status, s3_log, s4_input_dir],
+        )
+
+        # 阶段4：预览与开始处理
+        s4_preview_btn.click(
+            fn=preview_stage4,
+            inputs=[s4_input_dir, s4_output_dir],
+            outputs=s4_status,
+        )
+        s4_start_btn.click(
+            fn=run_stage4,
+            inputs=[s4_input_dir, s4_output_dir, s4_device, s4_processes],
+            outputs=[s4_progress, s4_status, s4_log],
         )
 
         # 阶段3/4：刷新设备

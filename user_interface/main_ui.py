@@ -2,8 +2,13 @@ import os, io, base64, requests, numpy as np
 import gradio as gr
 from typing import Tuple, List
 from .tabs import create_inference_tab, create_data_tab, create_training_tab
+from pathlib import Path
 
 BACKEND = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+ASSETS_DIR = (Path(__file__).resolve().parent.parent / "assets").resolve()
+LOGO_IMG_PATH = (ASSETS_DIR / "HydraVox.png").resolve()
+LOGO_IMG_URL = f"/gradio_api/file={LOGO_IMG_PATH}"
+gr.set_static_paths(paths=[ASSETS_DIR])
 
 def get_speakers() -> List[str]:
     """从后端获取说话人列表"""
@@ -62,10 +67,11 @@ def create_main_ui():
         """
     ) as demo:
         # 主标题
-        gr.HTML("""
+        gr.HTML(f"""
         <div style="text-align: center; padding: 20px;">
-            <h1 style="color: #2c3e50; margin-bottom: 10px;">
-                🎵 HydraVox TTS System
+            <h1 style="color: #2c3e50; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; gap: 12px;">
+                <img src="{LOGO_IMG_URL}" alt="HydraVox" style="height: 36px; vertical-align: middle;"/>
+                HydraVox TTS System
             </h1>
             <p style="color: #7f8c8d; font-size: 18px;">
                 多Token预测的端到端语音合成系统
@@ -120,7 +126,8 @@ def launch_ui(server_name: str = "0.0.0.0", server_port: int = 7860, simple: boo
         share=False,
         show_api=False,
         debug=False,
-        favicon_path=None
+        favicon_path=None,
+        allowed_paths=[ASSETS_DIR]
     )
 
 def launch_main_ui(
@@ -143,7 +150,8 @@ def launch_main_ui(
         share=share,
         show_api=False,
         debug=debug,
-        favicon_path=None
+        favicon_path=None,
+        allowed_paths=[ASSETS_DIR]
     )
 
 # 向后兼容的别名函数

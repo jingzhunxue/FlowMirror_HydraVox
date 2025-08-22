@@ -69,3 +69,5 @@ output_audio
 build_speakeinfo.py
 
 CLAUDE.md
+
+test_audio*/
