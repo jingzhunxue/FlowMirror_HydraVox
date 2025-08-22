@@ -36,7 +36,7 @@ from typing import Dict, List, Union, Any
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent.parent.absolute()
-third_party_dir = project_root / "third_party"
+third_party_dir = project_root / "server/model_utils"
 
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(third_party_dir))
@@ -56,8 +56,8 @@ from transformers import (
 )
 
 # ---------- Domain-specific imports ---------- #
-from scripts.third_party.cosyvoice.tokenizer.tokenizer import get_qwen_tokenizer  
-from scripts.third_party.matcha.utils.audio import mel_spectrogram
+from server.model_utils.cosyvoice.tokenizer.tokenizer import get_qwen_tokenizer  
+from server.model_utils.matcha.utils.audio import mel_spectrogram
 
 # -----------------------------------------------------------------------------
 # Data preparation helpers
@@ -174,12 +174,20 @@ def collate_fn(features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     
     # 处理其他数据
     for key in features[0].keys():
-        if key in ["audio", "speech_token", "embedding"]:  # 跳过已处理的数据
+        if key in ["audio", "speech_token", "embedding", "text_token"]:  # 跳过已处理的数据
             continue
-        if isinstance(features[0][key], torch.Tensor):
-            batch[key] = pad_sequence([f[key] for f in features], batch_first=True)
-        else:
-            batch[key] = torch.tensor([f[key] for f in features])
+        
+        try:
+            if isinstance(features[0][key], torch.Tensor):
+                batch[key] = pad_sequence([f[key] for f in features], batch_first=True)
+            else:
+                batch[key] = torch.tensor([f[key] for f in features])
+        except Exception as e:
+            print(f"ERROR - Failed to process key '{key}': {e}")
+            print(f"ERROR - Feature values for key '{key}':")
+            for i, f in enumerate(features[:5]):  # 只打印前5个样本
+                print(f"  Sample {i}: {f[key]} (type: {type(f[key])}, shape/len: {f[key].shape if hasattr(f[key], 'shape') else len(f[key]) if hasattr(f[key], '__len__') else 'scalar'})")
+            raise
     return batch
 
 
@@ -198,7 +206,7 @@ from transformers import EvalPrediction
 def main():
     parser = argparse.ArgumentParser()
     # ---- high-level script args ---- #
-    parser.add_argument("--config", type=str, required=True, help="YAML containing model + train cfg")
+    parser.add_argument("--config", type=str, help="YAML containing model + train cfg")
     parser.add_argument("--model", choices=["llm", "flow"], required=True)
     parser.add_argument("--model_ckpt", type=str, required=True, help="model checkpoint path")
     parser.add_argument("--tokenizer_path", type=str, required=True, help="tokenizer path")
@@ -208,11 +216,11 @@ def main():
 
     # ---- pass-through TrainingArguments ---- #
     parser.add_argument("--per_device_train_batch_size", type=int, default=4)
-    parser.add_argument("--per_device_eval_batch_size", type=int, default=4)
+    parser.add_argument("--per_device_eval_batch_size", type=int, default=None)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
     parser.add_argument("--num_train_epochs", type=int, default=10)
     parser.add_argument("--fp16", action="store_true", default=False)
-    parser.add_argument("--bf16", action="store_true", default=True)
+    parser.add_argument("--bf16", action="store_true", default=False)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1)
     parser.add_argument("--deepspeed", type=str, default=None, help="DeepSpeed json config path")
 
@@ -234,13 +242,33 @@ def main():
     args, unknown = parser.parse_known_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    
+    # 记录解析到的所有参数
+    logging.info("=" * 60)
+    logging.info("📋 训练脚本启动 - 参数解析完成")
+    logging.info("解析到的参数:")
+    for arg_name, arg_value in vars(args).items():
+        logging.info(f"  {arg_name}: {arg_value}")
+    if unknown:
+        logging.info(f"未知参数: {unknown}")
+    logging.info("=" * 60)
+    
     logging.info("Loading config …")
 
     # ------------------------------------------------------------------
     # Build model from YAML (keeps original cosyvoice behaviour)
     # ------------------------------------------------------------------
+    # 如果没有指定config，自动使用模型目录中的hydravox.yaml
+    if args.config is None:
+        model_dir = os.getenv("TTS_MODEL_DIR", "jzx-ai-lab/HydraVox")
+        args.config = os.path.join(model_dir, "hydravox.yaml")
+        logging.info(f"使用默认配置文件: {args.config}")
+    
     with open(args.config, "r") as f:
-        cfg = load_hyperpyyaml(f, overrides={})
+        model_dir = os.getenv("TTS_MODEL_DIR", "jzx-ai-lab/HydraVox")
+        cfg = load_hyperpyyaml(f, overrides={
+            'qwen_pretrain_path': os.path.join(model_dir, 'CosyVoice-BlankEN')
+        })
     model = cfg[args.model]
 
     # ------------------------------------------------------------------
@@ -316,6 +344,10 @@ def main():
             model = get_peft_model(model, lora_config)
 
         logging.info("Initialising Trainer …")
+        
+        # 如果没有指定eval_batch_size，使用train_batch_size
+        eval_batch_size = args.per_device_eval_batch_size if args.per_device_eval_batch_size is not None else args.per_device_train_batch_size
+        
         training_args = TrainingArguments(
             output_dir=args.output_dir,
             remove_unused_columns=False,  # we supply our own collator
@@ -326,7 +358,7 @@ def main():
             save_steps=args.save_steps,
             load_best_model_at_end=False,  # 禁用自动加载最佳模型，避免eval_loss错误
             per_device_train_batch_size=args.per_device_train_batch_size,
-            per_device_eval_batch_size=args.per_device_eval_batch_size,
+            per_device_eval_batch_size=eval_batch_size,
             learning_rate=args.learning_rate,
             num_train_epochs=args.num_train_epochs,
             fp16=args.fp16,

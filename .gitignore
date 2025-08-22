@@ -44,7 +44,7 @@ coverage.xml
 
 # Jupyter Notebook
 .ipynb_checkpoints
-
+checkpoints/
 # mypy
 .mypy_cache/
 .dmypy.json
@@ -69,3 +69,5 @@ output_audio
 build_speakeinfo.py
 
 CLAUDE.md
+
+models/

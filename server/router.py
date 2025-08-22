@@ -6,6 +6,7 @@ import logging
 import time
 import asyncio
 from .model_utils.infer_speech_model import load_audio_from_base64, audio_to_base64, load_audio_from_file, get_speakers
+from .training_manager import training_manager
 
 logger = logging.getLogger("router")
 
@@ -64,6 +65,43 @@ class LoadPTRequest(BaseModel):
     """加载模型权重请求"""
     llm_pt: str  # LLM权重路径
     flow_pt: str  # Flow权重路径
+
+class TrainingRequest(BaseModel):
+    """训练请求"""
+    config_file: Optional[str] = "configs/train/base.yaml"  # 配置文件路径
+    model_type: str = "llm"  # 模型类型 llm/flow
+    model_checkpoint: str  # 模型检查点路径
+    tokenizer_path: str  # 分词器路径
+    train_data: str  # 训练数据路径
+    cv_data: Optional[str] = None  # 验证数据路径
+    output_dir: str = "checkpoints/training"  # 输出目录
+    
+    # 训练参数
+    batch_size: int = 4
+    learning_rate: float = 1e-4
+    epochs: int = 10
+    gradient_accumulation_steps: int = 1
+    logging_steps: int = 50
+    eval_steps: int = 1000
+    save_steps: int = 2000
+    dataloader_num_workers: int = 8
+    
+    # 验证集设置
+    auto_val_split: bool = False
+    val_split_ratio: float = 0.05
+    
+    # 精度设置
+    use_fp16: bool = False
+    use_bf16: bool = True
+    
+    # LoRA设置
+    enable_lora: bool = False
+    lora_r: int = 64
+    lora_alpha: int = 128
+    lora_dropout: float = 0.05
+    
+    # DeepSpeed设置
+    deepspeed_config: Optional[str] = None
 
 @router.post("/zero-shot", response_model=APIResponse)
 async def zero_shot_tts(request: Request, task: ZeroShotRequest):
@@ -304,3 +342,134 @@ async def get_speakers_api(request: Request):
     except Exception as e:
         logger.error(f"获取说话人列表失败: {e}")
         return APIResponse(success=False, message="获取说话人列表失败", error=str(e))
+
+# ================== 训练相关 API ==================
+
+@router.post("/training/start", response_model=APIResponse)
+async def start_training_api(request: TrainingRequest):
+    """
+    启动训练任务
+    """
+    try:
+        # 将请求转换为配置字典
+        config = request.dict()
+        
+        # 启动训练
+        result = training_manager.start_training(config)
+        
+        if result.get('training_id'):
+            return APIResponse(
+                success=True,
+                message=result['message'],
+                data={
+                    'training_id': result['training_id'],
+                    'status': result['status'],
+                    'pid': result['pid']
+                }
+            )
+        else:
+            return APIResponse(
+                success=False,
+                message=result['message'],
+                error=result.get('error')
+            )
+        
+    except Exception as e:
+        logger.error(f"启动训练失败: {e}")
+        return APIResponse(
+            success=False,
+            message="启动训练失败",
+            error=str(e)
+        )
+
+@router.post("/training/stop/{training_id}", response_model=APIResponse)
+async def stop_training_api(training_id: str):
+    """
+    停止训练任务
+    """
+    try:
+        result = training_manager.stop_training(training_id)
+        
+        return APIResponse(
+            success=result['success'],
+            message=result['message']
+        )
+        
+    except Exception as e:
+        logger.error(f"停止训练失败: {e}")
+        return APIResponse(
+            success=False,
+            message="停止训练失败",
+            error=str(e)
+        )
+
+@router.get("/training/status/{training_id}", response_model=APIResponse)
+async def get_training_status_api(training_id: str):
+    """
+    获取训练状态
+    """
+    try:
+        status = training_manager.get_training_status(training_id)
+        
+        if status is None:
+            return APIResponse(
+                success=False,
+                message=f"训练任务 {training_id} 不存在"
+            )
+        
+        return APIResponse(
+            success=True,
+            message="获取训练状态成功",
+            data=status
+        )
+        
+    except Exception as e:
+        logger.error(f"获取训练状态失败: {e}")
+        return APIResponse(
+            success=False,
+            message="获取训练状态失败",
+            error=str(e)
+        )
+
+@router.get("/training/list", response_model=APIResponse)
+async def get_all_trainings_api():
+    """
+    获取所有训练任务
+    """
+    try:
+        trainings = training_manager.get_all_trainings()
+        
+        return APIResponse(
+            success=True,
+            message="获取训练列表成功",
+            data={'trainings': trainings}
+        )
+        
+    except Exception as e:
+        logger.error(f"获取训练列表失败: {e}")
+        return APIResponse(
+            success=False,
+            message="获取训练列表失败",
+            error=str(e)
+        )
+
+@router.delete("/training/{training_id}", response_model=APIResponse)
+async def delete_training_api(training_id: str):
+    """
+    删除训练任务
+    """
+    try:
+        result = training_manager.delete_training(training_id)
+        
+        return APIResponse(
+            success=result['success'],
+            message=result['message']
+        )
+        
+    except Exception as e:
+        logger.error(f"删除训练任务失败: {e}")
+        return APIResponse(
+            success=False,
+            message="删除训练任务失败",
+            error=str(e)
+        )
