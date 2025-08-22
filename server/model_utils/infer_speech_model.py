@@ -447,6 +447,9 @@ def load_audio_from_base64(audio_base64: str, target_sr: int = 16000):
         # 从字节流加载音频
         audio_data, sample_rate = torchaudio.load(io.BytesIO(audio_bytes))
         
+        if audio_data.shape[0] == 2:
+            audio_data = audio_data.mean(dim=0).unsqueeze(0)
+
         # 重采样到目标采样率
         if sample_rate != target_sr:
             resampler = torchaudio.transforms.Resample(sample_rate, target_sr)

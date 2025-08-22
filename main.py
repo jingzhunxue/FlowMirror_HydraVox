@@ -40,7 +40,7 @@ def parse_args():
 def main():
     multiprocessing.set_start_method("spawn", force=True)  # 兼容 Windows
     args = parse_args()
-    backend_url = args.backend_url or f"http://127.0.0.1:{args.api_port}"
+    backend_url = args.backend_url or f"http://{args.api_host}:{args.api_port}"
 
     api_proc = multiprocessing.Process(target=run_api, args=(args.api_host, args.api_port), daemon=False)
     api_proc.start()
