@@ -9,56 +9,19 @@ Usage:
 """
 
 import argparse
-from functools import lru_cache
 from pathlib import Path
 from typing import List, Dict
 import sys
 
 import torch
 import torchaudio
-import soundfile as sf
 from tqdm import tqdm
 from datasets import Dataset, Features, Audio, Value
 import numpy as np
-
-# ---------- VAD ----------
-from silero_vad import load_silero_vad, read_audio, get_speech_timestamps
-
-vad_model = load_silero_vad()
-
-def slice_audio(path: Path, sr: int = 16000, min_sec: float = 0.3):
-    wav, sample_rate = torchaudio.load(str(path))
-    
-    # 检查采样率，如果不一致则进行重采样
-    if sample_rate != sr:
-        print(f"重采样 {path.name}: {sample_rate}Hz -> {sr}Hz")
-        resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=sr)
-        wav = resampler(wav)
-        sample_rate = sr
-    
-    assert wav.shape[0] == 1 or len(wav.shape) == 1, "only support mono audio"
-    ts = get_speech_timestamps(wav.squeeze(), vad_model, threshold=0.5, sampling_rate=sr)
-    # 合并很短的停顿片段
-    merged = []
-    for seg in ts:
-        if not merged or seg["start"] - merged[-1]["end"] > min_sec * sr:
-            merged.append(seg)
-        else:
-            merged[-1]["end"] = seg["end"]
-    # save each chunk to memory buffer (wav bytes)
-    chunks = []
-    for seg in merged:
-        chunk = wav[:, seg["start"]:seg["end"]]
-        # 保证是float32，范围[-1, 1]
-        buf = chunk.squeeze().cpu().numpy().astype("float32")
-        chunks.append(buf.copy())
-    return chunks
-
+from modelscope.pipelines import pipeline
+from modelscope.utils.constant import Tasks
 # ---------- ASR ----------
 def load_asr(model_type: str, device: str):
-    from modelscope.pipelines import pipeline
-    from modelscope.utils.constant import Tasks
-    import os
     
     if model_type == "paraformer":
         mdl = pipeline(
@@ -226,10 +189,19 @@ def process_file(path: Path, asr_mdl, sr=16000) -> List[Dict]:
             print(f" ! 读取txt文件失败 {txt_path}: {e}, 使用ASR转录")
     
     # 如果没有txt文件或读取失败，使用ASR转录
-    for buf in slice_audio(path, sr):
-        text = asr_transcribe(asr_mdl, buf)
-        if text.strip():
-            records.append({"audio": {"array": buf, "sampling_rate": sr}, "text": text})
+    wav, sample_rate = torchaudio.load(str(path))
+    if sample_rate != sr:
+        print(f"重采样 {path.name}: {sample_rate}Hz -> {sr}Hz")
+        resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=sr)
+        wav = resampler(wav)
+        sample_rate = sr
+    if wav.shape[0] == 2:
+        wav = wav.mean(dim=0)
+        print(f"合并立体声 {path.name}")
+    buf = wav.squeeze().cpu().numpy().astype("float32")
+    text = asr_transcribe(asr_mdl, buf)
+    if text.strip():
+        records.append({"audio": {"array": buf, "sampling_rate": sr}, "text": text})
     return records
 
 # ---------- 多进程处理 ----------
@@ -336,6 +308,14 @@ def process_files_multiprocess(audio_files, device, gpu_devices, num_workers, mi
     manager = Manager()
     return_dict = manager.dict()
     
+    # 预热下载模型
+    if device == "cuda":
+        tmp_mdl = load_asr("paraformer", "cuda")
+        del tmp_mdl
+    else:
+        tmp_mdl = load_asr("sensevoice", "cpu")
+        del tmp_mdl
+
     # 创建并启动工作进程
     processes = []
     for i in range(len(file_chunks)):
@@ -567,7 +547,6 @@ def main():
 
     if not all_records:
         print("错误：未能从音频文件中提取任何有效的语音文本对。")
-        print("请检查您的音频文件是否包含清晰的语音，或尝试调整VAD参数。")
         sys.exit(1)
 
     build_dataset(all_records, args.dst, args.batch_size)

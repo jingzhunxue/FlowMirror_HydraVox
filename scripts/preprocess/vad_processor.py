@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 
 
 class VADProcessor:
-    def __init__(self, sample_rate=16000, merge_threshold=0.5, split_threshold=10.0):
+    def __init__(self, sample_rate=16000, merge_threshold=0.5, split_threshold=10.0, vad_threshold=0.5, min_speech_duration_ms=250, min_silence_duration_ms=200, speech_pad_ms=30):
         """
         初始化VAD处理器
         
@@ -30,6 +30,10 @@ class VADProcessor:
         self.sample_rate = sample_rate
         self.merge_threshold = merge_threshold
         self.split_threshold = split_threshold
+        self.vad_threshold = vad_threshold
+        self.min_speech_duration_ms = min_speech_duration_ms
+        self.min_silence_duration_ms = min_silence_duration_ms
+        self.speech_pad_ms = speech_pad_ms
         
         print("正在加载Silero VAD模型...")
         try:
@@ -74,17 +78,16 @@ class VADProcessor:
         except Exception as e:
             raise RuntimeError(f"保存音频文件失败: {e}")
     
-    def get_speech_timestamps(self, audio, threshold=0.5, min_speech_duration_ms=250, 
-                             min_silence_duration_ms=100, speech_pad_ms=30):
+    def get_speech_timestamps(self, audio):
         """获取语音时间戳"""
         timestamps = get_speech_timestamps(
             audio,
             self.model,
-            threshold=threshold,
-            min_speech_duration_ms=min_speech_duration_ms,
-            min_silence_duration_ms=min_silence_duration_ms,
+            threshold=self.vad_threshold,
+            min_speech_duration_ms=self.min_speech_duration_ms,
+            min_silence_duration_ms=self.min_silence_duration_ms,
             sampling_rate=self.sample_rate,
-            speech_pad_ms=speech_pad_ms
+            speech_pad_ms=self.speech_pad_ms
         )
         return timestamps
     
@@ -250,6 +253,14 @@ def main():
                        help='递归处理子目录')
     parser.add_argument('--sample-rate', type=int, default=16000,
                        help='输出采样率 (默认: 16000)')
+    parser.add_argument('--vad-threshold', type=float, default=0.5,
+                       help='VAD阈值 (默认: 0.5)')
+    parser.add_argument('--min-speech-duration-ms', type=int, default=250,
+                       help='最短语音时长 (默认: 250ms)')
+    parser.add_argument('--min-silence-duration-ms', type=int, default=200,
+                       help='最短静音时长 (默认: 200ms)')
+    parser.add_argument('--speech-pad-ms', type=int, default=30,
+                       help='前后填充时长 (默认: 30ms)')
     parser.add_argument('--merge-threshold', type=float, default=0.5,
                        help='最小音频长度阈值(秒)，小于此值会被合并 (默认: 0.5)')
     parser.add_argument('--split-threshold', type=float, default=10.0,
@@ -276,7 +287,9 @@ def main():
         processor = VADProcessor(
             sample_rate=args.sample_rate,
             merge_threshold=args.merge_threshold,
-            split_threshold=args.split_threshold
+            split_threshold=args.split_threshold,
+            min_silence_duration_ms=args.min_silence_duration_ms,
+            speech_pad_ms=args.speech_pad_ms
         )
     except Exception as e:
         print(f"初始化失败: {e}")
@@ -314,7 +327,7 @@ def main():
     print(f"总生成文件数: {total_files}")
     print(f"总耗时: {elapsed_time:.2f}秒")
     print("✅ 处理完成！")
-    print(f"step 3/5: ✅ All Finished! created {total_files} files -> {args.output}")
+    print(f"step 2/5: ✅ All Finished! created {total_files} files -> {args.output}")
     
     return 0
 

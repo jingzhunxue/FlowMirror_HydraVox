@@ -2,6 +2,13 @@ import os, gradio as gr
 import pandas as pd
 from typing import List, Tuple
 import json
+import subprocess, time, sys
+from pathlib import Path
+import re
+
+AUDIO_EXTS = {".wav", ".flac", ".mp3", ".ogg", ".m4a"}
+VIDEO_EXTS = {".mp4", ".mov", ".webm", ".mkv"}
+
 
 def upload_audio_files(files):
     """处理上传的音频文件"""
@@ -83,99 +90,810 @@ def export_dataset(dataset_df, format_type: str):
     
     return output_path
 
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _convert_script_path() -> Path:
+    return _project_root() / "scripts/preprocess/convert_to_wav.py"
+
+
+def _vad_script_path() -> Path:
+    return _project_root() / "scripts/preprocess/vad_processor.py"
+
+def _asr_script_path() -> Path:
+    return _project_root() / "scripts/preprocess/transcribe_to_dataset.py"
+
+
+def _token_script_path() -> Path:
+    return _project_root() / "scripts/preprocess/extract_speech_token_dataset.py"
+
+
+def _generate_default_output_dir(input_dir: str, suffix: str) -> str:
+    if not input_dir:
+        return ""
+    try:
+        base = Path(input_dir)
+        parent = base.parent
+        if parent == base:
+            return str(base.with_name(base.name + suffix))
+        return str(parent / f"{base.name}{suffix}")
+    except Exception:
+        return ""
+
+
+def _list_media_files(base_dir: str) -> List[Path]:
+    if not base_dir or not os.path.isdir(base_dir):
+        return []
+    base = Path(base_dir)
+    exts = AUDIO_EXTS.union(VIDEO_EXTS)
+    return [p for p in base.rglob("*") if p.is_file() and p.suffix.lower() in exts]
+
+
+def _build_expected_outputs(src_dir: str, dst_dir: str) -> List[Path]:
+    files = _list_media_files(src_dir)
+    src_path = Path(src_dir)
+    dst_path = Path(dst_dir)
+    expected: List[Path] = []
+    for f in files:
+        try:
+            rel = f.relative_to(src_path).with_suffix(".wav")
+        except ValueError:
+            # If f is not under src_path, skip
+            continue
+        expected.append(dst_path / rel)
+    return expected
+
+
+def _count_existing(paths: List[Path]) -> int:
+    cnt = 0
+    for p in paths:
+        if p.exists():
+            cnt += 1
+    return cnt
+
+
+def _auto_detect_device_and_processes() -> Tuple[str, int, str]:
+    """返回 (device, num_processes, detail_msg). device 为 'GPU' 或 'CPU'。"""
+    device = "CPU"
+    num_proc = 1
+    detail = "CUDA 不可用，默认 CPU x1"
+    try:
+        import torch  # type: ignore
+        if torch.cuda.is_available():
+            n = torch.cuda.device_count() or 1
+            device = "GPU"
+            num_proc = n
+            detail = f"CUDA 可用，GPU 数: {n}"
+    except Exception:
+        pass
+    return device, num_proc, detail
+
+
+def preview_stage1(input_dir: str, output_dir: str):
+    if not input_dir or not os.path.isdir(input_dir):
+        gr.Warning("请输入有效的输入目录")
+        return pd.DataFrame([]), 0, "❗ 输入目录无效"
+    if not output_dir:
+        output_dir = _generate_default_output_dir(input_dir, "_resample")
+    files = _list_media_files(input_dir)
+    expected = _build_expected_outputs(input_dir, output_dir)
+    preview_rows = []
+    for i, (src, dst) in enumerate(zip(files, expected)):
+        if i >= 50:
+            break
+        preview_rows.append({"源文件": str(src), "目标文件": str(dst)})
+    df = pd.DataFrame(preview_rows)
+    status = f"将处理 {len(files)} 个文件，输出至 {output_dir}"
+    return df, len(files), status
+
+
+def run_stage1(input_dir: str, output_dir: str, sample_rate: int, overwrite: bool):
+    """以子进程方式启动转换，并周期性统计进度（通过目标文件存在数）。"""
+    if not input_dir or not os.path.isdir(input_dir):
+        yield 0, "❗ 输入目录无效", ""
+        return
+    if not output_dir:
+        output_dir = _generate_default_output_dir(input_dir, "_resample")
+    expected = _build_expected_outputs(input_dir, output_dir)
+    total = len(expected)
+    if total == 0:
+        yield 0, "没有可处理的媒体文件", ""
+        return
+
+    script_path = _convert_script_path()
+    if not script_path.exists():
+        yield 0, f"找不到脚本: {script_path}", ""
+        return
+
+    cmd = [
+        sys.executable,
+        str(script_path),
+        "--src", input_dir,
+        "--dst", output_dir,
+        "--sr", str(int(sample_rate)),
+    ]
+    if overwrite:
+        cmd.append("--overwrite")
+
+    start_time = time.time()
+    try:
+        proc = subprocess.Popen(cmd)
+    except Exception as e:
+        yield 0, f"启动失败: {e}", ""
+        return
+
+    # 轮询进度
+    last = -1
+    while True:
+        ret = proc.poll()
+        done = _count_existing(expected)
+        pct = int(done * 100 / total) if total else 0
+        elapsed = int(time.time() - start_time)
+        if pct != last:
+            status = f"进行中: {done}/{total} ({pct}%) · 用时 {elapsed}s"
+            yield pct, status, ""
+            last = pct
+        if ret is not None:
+            break
+        time.sleep(1.0)
+
+    # 完成/失败状态
+    done = _count_existing(expected)
+    pct = int(done * 100 / total) if total else 0
+    elapsed = int(time.time() - start_time)
+    if proc.returncode == 0:
+        yield 100, f"✅ 完成: {done}/{total} · 总用时 {elapsed}s", ""
+    else:
+        yield pct, f"❌ 失败: 已完成 {done}/{total} · 总用时 {elapsed}s", ""
+
+
+def _sync_output_dir(input_dir: str, auto_sync: bool, suffix: str):
+    if auto_sync and input_dir:
+        return _generate_default_output_dir(input_dir, suffix)
+    return gr.update()
+
+
+def _chain_next_input(prev_output_dir: str, link_enabled: bool):
+    if link_enabled and prev_output_dir:
+        return prev_output_dir
+    return gr.update()
+
+
+def _refresh_device_once():
+    d, p, detail = _auto_detect_device_and_processes()
+    return detail, p
+
+def _refresh_device_triplet():
+    d, p, detail = _auto_detect_device_and_processes()
+    return detail, p, ("GPU" if d == "GPU" else "CPU")
+
+
+def preview_stage2(input_dir: str, output_dir: str):
+    if not input_dir or not os.path.isdir(input_dir):
+        return "❗ 输入目录无效"
+    if not output_dir:
+        output_dir = _generate_default_output_dir(input_dir, "_vad")
+    # 粗略统计：输入音频文件数量
+    audio_files = [p for p in Path(input_dir).rglob('*') if p.suffix.lower() in {'.wav', '.mp3', '.flac', '.m4a', '.ogg', '.wma'}]
+    return f"将处理约 {len(audio_files)} 个音频文件，输出至 {output_dir}"
+
+
+def run_stage2(input_dir: str,
+               output_dir: str,
+               threshold: float,
+               min_speech_ms: float,
+               min_silence_ms: float,
+               pad_ms: float,
+               min_seg_s: float,
+               max_seg_s: float,
+               link_enabled: bool):
+    """运行 VAD 处理脚本，并解析 stdout 实时更新进度。
+    输出：(progress_percent, status_text, log_text, next_stage_input)
+    """
+    if not input_dir or not os.path.isdir(input_dir):
+        yield 0, "❗ 输入目录无效", "", gr.update()
+        return
+    if not output_dir:
+        output_dir = _generate_default_output_dir(input_dir, "_vad")
+
+    script_path = _vad_script_path()
+    if not script_path.exists():
+        yield 0, f"找不到脚本: {script_path}", "", gr.update()
+        return
+
+    cmd = [
+        sys.executable,
+        str(script_path),
+        str(input_dir),
+        "-o", str(output_dir),
+        "--sample-rate", "16000",
+        "--vad-threshold", str(float(threshold)),
+        "--min-speech-duration-ms", str(int(min_speech_ms)),
+        "--min-silence-duration-ms", str(int(min_silence_ms)),
+        "--speech-pad-ms", str(int(pad_ms)),
+        "--merge-threshold", str(float(min_seg_s)),
+        "--split-threshold", str(float(max_seg_s)),
+    ]
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+    except Exception as e:
+        yield 0, f"启动失败: {e}", "", gr.update()
+        return
+
+    start_time = time.time()
+    log_lines: List[str] = []
+    total = None
+    current = 0
+    last_pct = -1
+
+    # 初始提示
+    yield 0, "VAD 处理中...", "", gr.update()
+
+    try:
+        assert proc.stdout is not None
+        for raw_line in proc.stdout:
+            line = raw_line.rstrip()
+            if not line:
+                continue
+            # 累积日志（仅保留最近 50 行）
+            log_lines.append(line)
+            if len(log_lines) > 50:
+                log_lines = log_lines[-50:]
+
+            # 解析总数
+            m_total = re.search(r"找到\s+(\d+)\s+个音频文件", line)
+            if m_total:
+                try:
+                    total = int(m_total.group(1))
+                except Exception:
+                    total = total
+
+            # 解析 tqdm 进度 "处理音频文件: ... 12/34 ..."
+            if "处理音频文件" in line:
+                m_prog = re.search(r"(\d+)\s*/\s*(\d+)", line)
+                if m_prog:
+                    try:
+                        current = int(m_prog.group(1))
+                        total = int(m_prog.group(2))
+                    except Exception:
+                        pass
+
+            pct = None
+            if total and total > 0:
+                pct = int(max(0, min(100, current * 100 // total)))
+
+            elapsed = int(time.time() - start_time)
+            status = f"进行中: {current}/{total if total else '?'} · 用时 {elapsed}s"
+
+            if pct is not None and pct != last_pct:
+                yield pct, status, "\n".join(log_lines), gr.update()
+                last_pct = pct
+            else:
+                # 仅更新日志与状态
+                yield (last_pct if last_pct >= 0 else 0), status, "\n".join(log_lines), gr.update()
+
+        ret = proc.wait()
+    except Exception as e:
+        yield (last_pct if last_pct >= 0 else 0), f"❌ 运行异常: {e}", "\n".join(log_lines), gr.update()
+        return
+
+    elapsed = int(time.time() - start_time)
+    if proc.returncode == 0:
+        final_status = f"✅ 完成 · 用时 {elapsed}s"
+        # 若启用串联，将下阶段输入设置为本阶段输出目录
+        next_input = output_dir if link_enabled else gr.update()
+        yield 100, final_status, "\n".join(log_lines), next_input
+    else:
+        yield (last_pct if last_pct >= 0 else 0), f"❌ 失败 · 用时 {elapsed}s", "\n".join(log_lines), gr.update()
+
+
+def preview_stage3(input_dir: str, output_dir: str):
+    if not input_dir or not os.path.isdir(input_dir):
+        return "❗ 输入目录无效"
+    if not output_dir:
+        output_dir = _generate_default_output_dir(input_dir, "_asr")
+    wav_files = list(Path(input_dir).rglob("*.wav"))
+    mp3_files = list(Path(input_dir).rglob("*.mp3"))
+    return f"将转录 {len(wav_files)} 个 .wav 与 {len(mp3_files)} 个 .mp3，输出到 {output_dir}"
+
+
+def run_stage3(input_dir: str,
+               output_dir: str,
+               device_choice: str,
+               num_processes: float,
+               link_enabled: bool):
+    """运行 ASR 转录脚本。
+    输出：(progress_percent, status_text, log_text, next_stage_input)
+    """
+    if not input_dir or not os.path.isdir(input_dir):
+        yield 0, "❗ 输入目录无效", "", gr.update()
+        return
+    if not output_dir:
+        output_dir = _generate_default_output_dir(input_dir, "_asr")
+
+    script_path = _asr_script_path()
+    if not script_path.exists():
+        yield 0, f"找不到脚本: {script_path}", "", gr.update()
+        return
+
+    # 设备与进程选择
+    chosen = device_choice
+    dev_detect, gpu_count, _detail = _auto_detect_device_and_processes()
+    if chosen == "自动":
+        chosen = "GPU" if dev_detect == "GPU" else "CPU"
+    use_cuda = (chosen == "GPU" and dev_detect == "GPU")
+    device_flag = "cuda" if use_cuda else "cpu"
+    try:
+        nproc = max(1, int(num_processes))
+    except Exception:
+        nproc = 1
+
+    gpu_devices = []
+    if use_cuda:
+        try:
+            import torch  # type: ignore
+            if torch.cuda.is_available():
+                cnt = torch.cuda.device_count()
+                take = min(nproc, cnt)
+                gpu_devices = list(range(take))
+        except Exception:
+            gpu_devices = []
+            device_flag = "cpu"
+
+    cmd = [
+        sys.executable,
+        str(script_path),
+        "--src", str(input_dir),
+        "--dst", str(output_dir),
+        "--device", device_flag,
+        "--num_workers", str(nproc),
+    ]
+    if device_flag == "cuda" and gpu_devices:
+        cmd.extend(["--gpu_devices", ",".join(str(x) for x in gpu_devices)])
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+    except Exception as e:
+        yield 0, f"启动失败: {e}", "", gr.update()
+        return
+
+    start_time = time.time()
+    log_lines: List[str] = []
+    last_pct = -1
+    total_files = None
+    # 多进程解析数据（可选，若解析失败则回退到日志）
+    worker_chunks = {}
+    worker_pct = {}
+    num_workers_detected = None
+
+    yield 0, "ASR 转录中...", "", gr.update()
+
+    try:
+        assert proc.stdout is not None
+        for raw_line in proc.stdout:
+            line = raw_line.rstrip()
+            if not line:
+                continue
+            log_lines.append(line)
+            if len(log_lines) > 200:
+                log_lines = log_lines[-200:]
+
+            # 解析总数
+            m_total = re.search(r"找到\s+(\d+)\s+个\s+\.wav\s+文件和\s+(\d+)\s+个\s+\.mp3\s+文件", line)
+            if m_total:
+                try:
+                    total_files = int(m_total.group(1)) + int(m_total.group(2))
+                except Exception:
+                    pass
+
+            # 解析多进程总体信息
+            m_multi = re.search(r"启动多进程处理:\s*(\d+)\s*个工作进程处理\s*(\d+)\s*个文件", line)
+            if m_multi:
+                try:
+                    num_workers_detected = int(m_multi.group(1))
+                    total_files = int(m_multi.group(2))
+                except Exception:
+                    pass
+            m_chunk = re.search(r"启动工作进程\s*(\d+)，分配\s*(\d+)\s*个文件", line)
+            if m_chunk:
+                try:
+                    wid = int(m_chunk.group(1)); size = int(m_chunk.group(2))
+                    worker_chunks[wid] = size
+                except Exception:
+                    pass
+
+            # 解析单进度（tqdm 百分比）
+            m_asr_pct = re.search(r"ASR.*?(\d+)%\|", line)
+            if m_asr_pct:
+                try:
+                    pct = int(m_asr_pct.group(1))
+                    last_pct = pct
+                except Exception:
+                    pass
+
+            m_worker_pct = re.search(r"Worker\s*(\d+).*?(\d+)%\|", line)
+            if m_worker_pct:
+                try:
+                    wid = int(m_worker_pct.group(1)); pct = int(m_worker_pct.group(2))
+                    worker_pct[wid] = pct
+                    if worker_chunks:
+                        total_chunk = sum(worker_chunks.values()) or len(worker_pct)
+                        weighted = 0
+                        for w, p in worker_pct.items():
+                            weight = worker_chunks.get(w, 1)
+                            weighted += p * weight
+                        last_pct = int(weighted / total_chunk)
+                    else:
+                        # 平均
+                        last_pct = int(sum(worker_pct.values()) / max(1, len(worker_pct)))
+                except Exception:
+                    pass
+
+            elapsed = int(time.time() - start_time)
+            status = f"进行中 · 用时 {elapsed}s"
+            yield (last_pct if last_pct >= 0 else 0), status, "\n".join(log_lines), gr.update()
+
+        ret = proc.wait()
+    except Exception as e:
+        yield (last_pct if last_pct >= 0 else 0), f"❌ 运行异常: {e}", "\n".join(log_lines), gr.update()
+        return
+
+    elapsed = int(time.time() - start_time)
+    if proc.returncode == 0:
+        msg = f"✅ 完成 · 用时 {elapsed}s"
+        next_input = output_dir if link_enabled else gr.update()
+        yield 100, msg, "\n".join(log_lines), next_input
+    else:
+        yield (last_pct if last_pct >= 0 else 0), f"❌ 失败 · 用时 {elapsed}s", "\n".join(log_lines), gr.update()
+
+
+
+def preview_stage4(input_dir: str, output_dir: str):
+    if not input_dir or not os.path.isdir(input_dir):
+        return "❗ 输入目录无效（需要 Stage3 生成的 HuggingFace 数据集目录）"
+    if not output_dir:
+        output_dir = _generate_default_output_dir(input_dir, "_token")
+    try:
+        from datasets import load_from_disk  # type: ignore
+        ds = load_from_disk(str(input_dir))
+        return f"将处理 {len(ds)} 个样本，输出至 {output_dir}"
+    except Exception:
+        return f"将尝试处理输入数据集，输出至 {output_dir}"
+
+
+def run_stage4(input_dir: str,
+               output_dir: str,
+               device_choice: str,
+               num_processes: float):
+    """运行 Token 提取脚本。
+    输出：(progress_percent, status_text, log_text)
+    """
+    if not input_dir or not os.path.isdir(input_dir):
+        yield 0, "❗ 输入目录无效", ""
+        return
+    if not output_dir:
+        output_dir = _generate_default_output_dir(input_dir, "_token")
+
+    script_path = _token_script_path()
+    if not script_path.exists():
+        yield 0, f"找不到脚本: {script_path}", ""
+        return
+
+    # 设备与进程选择
+    chosen = device_choice
+    dev_detect, gpu_count, _detail = _auto_detect_device_and_processes()
+    if chosen == "自动":
+        chosen = "GPU" if dev_detect == "GPU" else "CPU"
+    use_cuda = (chosen == "GPU" and dev_detect == "GPU")
+    device_flag = "cuda" if use_cuda else "cpu"
+    try:
+        nproc = max(1, int(num_processes))
+    except Exception:
+        nproc = 1
+
+    cmd = [
+        sys.executable,
+        str(script_path),
+        "--input", str(input_dir),
+        "--output", str(output_dir),
+        "--device", device_flag,
+        "--num-proc", str(nproc),
+    ]
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+    except Exception as e:
+        yield 0, f"启动失败: {e}", ""
+        return
+
+    start_time = time.time()
+    log_lines: List[str] = []
+    last_pct = -1
+    total_samples = None
+
+    yield 0, "Token 提取中...", ""
+
+    try:
+        assert proc.stdout is not None
+        for raw_line in proc.stdout:
+            line = raw_line.rstrip()
+            if not line:
+                continue
+            log_lines.append(line)
+            if len(log_lines) > 200:
+                log_lines = log_lines[-200:]
+
+            # 解析数据集总量
+            m_total = re.search(r"Loaded dataset:\s*(\d+)", line)
+            if m_total:
+                try:
+                    total_samples = int(m_total.group(1))
+                except Exception:
+                    pass
+
+            # 解析 tqdm 百分比
+            m_pct = re.search(r"(\d+)%\|", line)
+            if m_pct:
+                try:
+                    last_pct = int(m_pct.group(1))
+                except Exception:
+                    pass
+
+            # 完成提示
+            if "✅ Token 提取完成" in line or "All Finished" in line:
+                last_pct = 100
+
+            elapsed = int(time.time() - start_time)
+            if total_samples and last_pct >= 0:
+                done = int(total_samples * last_pct / 100)
+                status = f"进行中: {done}/{total_samples} · 用时 {elapsed}s"
+            else:
+                status = f"进行中 · 用时 {elapsed}s"
+            yield (last_pct if last_pct >= 0 else 0), status, "\n".join(log_lines)
+
+        ret = proc.wait()
+    except Exception as e:
+        yield (last_pct if last_pct >= 0 else 0), f"❌ 运行异常: {e}", "\n".join(log_lines)
+        return
+
+    elapsed = int(time.time() - start_time)
+    if proc.returncode == 0:
+        yield 100, f"✅ 完成 · 用时 {elapsed}s", "\n".join(log_lines)
+    else:
+        yield (last_pct if last_pct >= 0 else 0), f"❌ 失败 · 用时 {elapsed}s", "\n".join(log_lines)
+
+
 def create_data_tab():
     """创建数据处理tab界面"""
     with gr.Tab("📊 数据处理"):
-        gr.Markdown("### 数据集制作与处理")
-        
-        with gr.Row():
-            with gr.Column(scale=1):
-                # 音频上传区域
-                gr.Markdown("#### 1. 音频文件上传")
-                audio_files = gr.File(
-                    label="选择音频文件",
-                    file_count="multiple",
-                    file_types=[".wav", ".mp3", ".flac", ".m4a"]
-                )
-                upload_btn = gr.Button("📁 上传音频", variant="primary")
-                upload_status = gr.Textbox(label="上传状态", interactive=False)
-                
-                # 文本标注区域
-                gr.Markdown("#### 2. 文本标注")
-                text_annotation = gr.Textbox(
-                    label="文本标注（每行对应一个音频）",
-                    placeholder="第一个音频的文本\n第二个音频的文本\n...",
-                    lines=8
-                )
-                annotate_btn = gr.Button("✏️ 生成标注", variant="secondary")
-                
-            with gr.Column(scale=2):
-                # 文件列表
-                gr.Markdown("#### 音频文件列表")
-                file_list = gr.Dataframe(
-                    headers=["文件名", "大小", "路径"],
-                    label="已上传文件",
-                    interactive=False
-                )
-                
-                # 标注结果
-                gr.Markdown("#### 标注结果")
-                annotation_result = gr.Dataframe(
-                    headers=["音频ID", "文本", "状态"],
-                    label="标注数据",
-                    interactive=True
-                )
-        
-        # 数据处理工具
-        gr.Markdown("### 数据集处理工具")
-        with gr.Row():
-            with gr.Column():
-                gr.Markdown("#### 数据验证")
-                validate_btn = gr.Button("🔍 验证数据集", variant="secondary")
-                validation_result = gr.Textbox(
-                    label="验证结果",
-                    lines=5,
-                    interactive=False
-                )
-                
-            with gr.Column():
-                gr.Markdown("#### 数据导出")
-                export_format = gr.Dropdown(
-                    choices=["CSV", "JSON"],
-                    value="JSON",
-                    label="导出格式"
-                )
-                export_btn = gr.Button("💾 导出数据集", variant="primary")
-                export_file = gr.File(label="下载数据集")
-        
-        # 数据统计
-        gr.Markdown("### 数据集统计")
-        with gr.Row():
-            total_count = gr.Number(label="总样本数", interactive=False)
-            avg_length = gr.Number(label="平均文本长度", interactive=False)
-            unique_chars = gr.Number(label="唯一字符数", interactive=False)
-        
-        # 事件绑定
-        upload_btn.click(
-            fn=upload_audio_files,
-            inputs=[audio_files],
-            outputs=[upload_status, file_list]
+        gr.Markdown("### 🛠️ 音频数据预处理（四阶段）")
+        device_default, proc_default, device_detail = _auto_detect_device_and_processes()
+        with gr.Group():
+            link_stages = gr.Checkbox(value=False, label="自动串联阶段（上阶段输出作为下阶段输入）")
+ 
+        # 阶段1：格式转换与重采样
+        with gr.Accordion("阶段1｜格式转换与重采样", open=True):
+            with gr.Row():
+                s1_input_dir = gr.Textbox(label="输入目录", placeholder="/path/to/input_dir")
+                s1_auto_sync = gr.Checkbox(value=True, label="自动同步输出路径（_resample）")
+                s1_output_dir = gr.Textbox(label="输出目录", placeholder="自动同步或手动填写")
+            with gr.Row():
+                s1_sr = gr.Dropdown(choices=[8000,16000,22050,44100,48000], value=16000, label="采样率 (Hz)")
+                s1_overwrite = gr.Checkbox(value=False, label="覆盖已存在文件")
+            with gr.Row():
+                s1_preview_btn = gr.Button("👀 预览变更", variant="secondary")
+                s1_start_btn = gr.Button("▶️ 开始处理", variant="primary")
+            s1_preview_df = gr.Dataframe(headers=["源文件", "目标文件"], label="映射预览（前50条）", interactive=False)
+            with gr.Row():
+                s1_total_num = gr.Number(label="待处理文件数", interactive=False)
+                s1_progress = gr.Slider(0, 100, value=0, step=1, label="进度 (%)", interactive=False)
+            s1_status = gr.Textbox(label="状态", interactive=False)
+            s1_log = gr.Textbox(label="运行日志", lines=4, interactive=False)
+
+        # 阶段2：VAD 处理（Silero）
+        with gr.Accordion("阶段2｜VAD 处理（Silero）", open=False):
+            with gr.Row():
+                s2_input_dir = gr.Textbox(label="输入目录", placeholder="默认衔接阶段1输出")
+                s2_auto_sync = gr.Checkbox(value=True, label="自动同步输出路径（_vad）")
+                s2_output_dir = gr.Textbox(label="输出目录", placeholder="自动同步或手动填写")
+            with gr.Row():
+                s2_threshold = gr.Slider(0.0, 1.0, value=0.5, step=0.01, label="置信度阈值 threshold")
+                s2_min_speech_ms = gr.Number(value=250, label="最短语音 ms")
+                s2_min_silence_ms = gr.Number(value=200, label="最短静音 ms")
+                s2_pad_ms = gr.Number(value=30, label="前后填充 ms")
+            with gr.Row():
+                s2_min_seg = gr.Number(value=0.5, label="最短片段 s")
+                s2_max_seg = gr.Number(value=30, label="最长片段 s")
+            with gr.Row():
+                s2_preview_btn = gr.Button("👀 预览", variant="secondary")
+                s2_start_btn = gr.Button("▶️ 开始处理", variant="primary")
+            with gr.Row():
+                s2_progress = gr.Slider(0, 100, value=0, step=1, label="进度 (%)", interactive=False)
+            s2_status = gr.Textbox(label="状态", interactive=False)
+            s2_log = gr.Textbox(label="运行日志", lines=4, interactive=False)
+
+        # 阶段3：ASR 处理
+        with gr.Accordion("阶段3｜ASR 处理", open=False):
+            with gr.Row():
+                s3_input_dir = gr.Textbox(label="输入目录", placeholder="默认衔接阶段2输出")
+                s3_auto_sync = gr.Checkbox(value=True, label="自动同步输出路径（_asr）")
+                s3_output_dir = gr.Textbox(label="输出目录", placeholder="自动同步或手动填写")
+            with gr.Row():
+                s3_device = gr.Dropdown(choices=["自动", "CPU", "GPU"], value=("GPU" if device_default=="GPU" else "CPU"), label="设备")
+                s3_processes = gr.Number(value=proc_default, label="进程数")
+                s3_detect_btn = gr.Button("🔄 刷新设备", variant="secondary")
+            with gr.Row():
+                s3_preview_btn = gr.Button("👀 预览", variant="secondary")
+                s3_start_btn = gr.Button("▶️ 开始处理", variant="primary")
+            with gr.Row():
+                s3_progress = gr.Slider(0, 100, value=0, step=1, label="进度 (%)", interactive=False)
+            s3_status = gr.Textbox(label="状态", interactive=False)
+            s3_log = gr.Textbox(label="运行日志", lines=4, interactive=False)
+            s3_device_info = gr.Textbox(value=device_detail, label="设备检测", interactive=False)
+
+        # 阶段4：提取训练用 Token
+        with gr.Accordion("阶段4｜提取训练用 Token", open=False):
+            with gr.Row():
+                s4_input_dir = gr.Textbox(label="输入目录", placeholder="默认衔接阶段3输出")
+                s4_auto_sync = gr.Checkbox(value=True, label="自动同步输出路径（_token）")
+                s4_output_dir = gr.Textbox(label="输出目录", placeholder="自动同步或手动填写")
+            with gr.Row():
+                s4_device = gr.Dropdown(choices=["自动", "CPU", "GPU"], value=("GPU" if device_default=="GPU" else "CPU"), label="设备")
+                s4_processes = gr.Number(value=proc_default, label="进程数")
+                s4_detect_btn = gr.Button("🔄 刷新设备", variant="secondary")
+            with gr.Row():
+                s4_preview_btn = gr.Button("👀 预览", variant="secondary")
+                s4_start_btn = gr.Button("▶️ 开始处理", variant="primary")
+            with gr.Row():
+                s4_progress = gr.Slider(0, 100, value=0, step=1, label="进度 (%)", interactive=False)
+            s4_status = gr.Textbox(label="状态", interactive=False)
+            s4_log = gr.Textbox(label="运行日志", lines=4, interactive=False)
+            s4_device_info = gr.Textbox(value=device_detail, label="设备检测", interactive=False)
+         # ---------------- 新增（结束） ----------------
+ 
+         # 事件绑定（预处理）
+         # 阶段1：自动同步输出、链到阶段2输入
+        s1_input_dir.change(
+            fn=lambda d, a: _sync_output_dir(d, a, "_resample"),
+            inputs=[s1_input_dir, s1_auto_sync],
+            outputs=s1_output_dir,
         )
-        
-        annotate_btn.click(
-            fn=process_text_annotation,
-            inputs=[audio_files, text_annotation],
-            outputs=annotation_result
+        s1_auto_sync.change(
+            fn=lambda a, d: _sync_output_dir(d, a, "_resample"),
+            inputs=[s1_auto_sync, s1_input_dir],
+            outputs=s1_output_dir,
         )
-        
-        validate_btn.click(
-            fn=validate_dataset,
-            inputs=[annotation_result],
-            outputs=validation_result
+        s1_output_dir.change(
+            fn=_chain_next_input,
+            inputs=[s1_output_dir, link_stages],
+            outputs=s2_input_dir,
         )
-        
-        export_btn.click(
-            fn=export_dataset,
-            inputs=[annotation_result, export_format],
-            outputs=export_file
+
+        # 阶段2：自动同步输出、链到阶段3输入
+        s2_input_dir.change(
+            fn=lambda d, a: _sync_output_dir(d, a, "_vad"),
+            inputs=[s2_input_dir, s2_auto_sync],
+            outputs=s2_output_dir,
+        )
+        s2_auto_sync.change(
+            fn=lambda a, d: _sync_output_dir(d, a, "_vad"),
+            inputs=[s2_auto_sync, s2_input_dir],
+            outputs=s2_output_dir,
+        )
+        s2_output_dir.change(
+            fn=_chain_next_input,
+            inputs=[s2_output_dir, link_stages],
+            outputs=s3_input_dir,
+        )
+
+        # 阶段3：自动同步输出、链到阶段4输入
+        s3_input_dir.change(
+            fn=lambda d, a: _sync_output_dir(d, a, "_asr"),
+            inputs=[s3_input_dir, s3_auto_sync],
+            outputs=s3_output_dir,
+        )
+        s3_auto_sync.change(
+            fn=lambda a, d: _sync_output_dir(d, a, "_asr"),
+            inputs=[s3_auto_sync, s3_input_dir],
+            outputs=s3_output_dir,
+        )
+        s3_output_dir.change(
+            fn=_chain_next_input,
+            inputs=[s3_output_dir, link_stages],
+            outputs=s4_input_dir,
+        )
+
+        # 阶段4：自动同步输出
+        s4_input_dir.change(
+            fn=lambda d, a: _sync_output_dir(d, a, "_token"),
+            inputs=[s4_input_dir, s4_auto_sync],
+            outputs=s4_output_dir,
+        )
+        s4_auto_sync.change(
+            fn=lambda a, d: _sync_output_dir(d, a, "_token"),
+            inputs=[s4_auto_sync, s4_input_dir],
+            outputs=s4_output_dir,
+        )
+
+        # 阶段1：预览与开始处理
+        s1_preview_btn.click(
+            fn=preview_stage1,
+            inputs=[s1_input_dir, s1_output_dir],
+            outputs=[s1_preview_df, s1_total_num, s1_status],
+        )
+        s1_start_btn.click(
+            fn=run_stage1,
+            inputs=[s1_input_dir, s1_output_dir, s1_sr, s1_overwrite],
+            outputs=[s1_progress, s1_status, s1_log],
+        )
+
+        # 阶段2：预览与开始处理
+        s2_preview_btn.click(
+            fn=preview_stage2,
+            inputs=[s2_input_dir, s2_output_dir],
+            outputs=s2_status,
+        )
+        s2_start_btn.click(
+            fn=run_stage2,
+            inputs=[s2_input_dir, s2_output_dir, s2_threshold, s2_min_speech_ms, s2_min_silence_ms, s2_pad_ms, s2_min_seg, s2_max_seg, link_stages],
+            outputs=[s2_progress, s2_status, s2_log, s3_input_dir],
+        )
+
+        # 阶段3：预览与开始处理
+        s3_preview_btn.click(
+            fn=preview_stage3,
+            inputs=[s3_input_dir, s3_output_dir],
+            outputs=s3_status,
+        )
+        s3_start_btn.click(
+            fn=run_stage3,
+            inputs=[s3_input_dir, s3_output_dir, s3_device, s3_processes, link_stages],
+            outputs=[s3_progress, s3_status, s3_log, s4_input_dir],
+        )
+
+        # 阶段4：预览与开始处理
+        s4_preview_btn.click(
+            fn=preview_stage4,
+            inputs=[s4_input_dir, s4_output_dir],
+            outputs=s4_status,
+        )
+        s4_start_btn.click(
+            fn=run_stage4,
+            inputs=[s4_input_dir, s4_output_dir, s4_device, s4_processes],
+            outputs=[s4_progress, s4_status, s4_log],
+        )
+
+        # 阶段3/4：刷新设备
+        s3_detect_btn.click(
+            fn=_refresh_device_triplet,
+            inputs=[],
+            outputs=[s3_device_info, s3_processes, s3_device],
+        )
+        s4_detect_btn.click(
+            fn=_refresh_device_triplet,
+            inputs=[],
+            outputs=[s4_device_info, s4_processes, s4_device],
         ) 
