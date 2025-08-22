@@ -37,7 +37,8 @@
 
 * **Multi‑Head AR Decoding** — Predict multiple speech tokens per step → **lower latency** and **higher throughput** under the same even better quality target.
 * **Ready‑to‑use WebUI** — Inference, flash batch synthesis(comming soon), fine‑tuning(comming soon), speaker mgmt, logs/plots.
-* **Hot-load LoRA for emotion/style** — Load/unload adapters at runtime per utterance; stack multiple with per-adapter scaling (e.g. `--lora happy.safetensors:0.6,energetic.safetensors:0.3`).
+* **Hot-load LoRA for emotion/style**(comming soon) — Load/unload adapters at runtime per utterance; stack multiple with per-adapter scaling (e.g. `--lora happy.safetensors:0.6,energetic.safetensors:0.3`).
+* **SFT implement** — SFT implement derived from CosyVoice2.0.
 * **Reproducible scripts** — One‑command demo and fully version‑locked configs.
 * **CosyVoice2.0‑derived** — Clear deltas vs upstream; compatible data formats where possible.
 
@@ -65,6 +66,12 @@ cd FlowMirror-HydraVox
 
 # 1) Create conda env
 conda create -n hydravox python=3.11
+
+# 2) Install dependencies
+pip install -r requirements.txt
+
+# 3) Download model weights
+modelscope download jzx-ai-lab/HydraVox --local_dir jzx-ai-lab/HydraVox
 ```
 
 ---
@@ -81,10 +88,10 @@ python main.py --api-host 0.0.0.0 --api-port 7860
 
 Features:
 
-* Text → Speech (single/batch), long‑text chunking, punctuation & pause control.
+* Text → Speech, long‑text chunking.
+* **Data Process panel**: dataset browser, configs, live logs & curves.
 * **Training/Finetune panel**: dataset browser, configs, live logs & curves.
-* Speaker manager: add/rename/delete speakers, preview, embeddings.
-* Export WAV/FLAC; optional watermarking; history with reproducible seeds.
+* **Speaker manager**: add/rename/delete speakers, preview, embeddings.
 
 Screenshots (TBD):
 
@@ -112,7 +119,7 @@ logs/             # train/infer logs
   - [ ] flow-matching core update introducing a TTS-tailored paradigm
 
 * [ ] 2025/08
-  - [ ] Release training ui tab and training scripts
+  - [X] Release training ui tab and training scripts
   - [ ] Release LoRA hot-load and inference with pretrained emotion lora
 ---
 
@@ -185,18 +192,6 @@ torchrun --nproc_per_node=4 train.py -c configs/train/base_4head.yaml \
 
 ---
 
-## 🧪 Evaluation
-
-```bash
-# Real‑time factor (RTF) & latency
-python eval/measure_rtf.py --textfile assets/bench.txt --multihead 4
-
-# Quality proxies (MOS‑net, WER/CER where applicable)
-python eval/quality.py --set dev
-```
-
----
-
 ## 🧩 Architecture
 
 * **Encoder** → **AR decoder (multi‑head)** → **token fusion** → **vocoder**.
@@ -233,36 +228,6 @@ webui/            # Gradio app and REST server
 
 ---
 
-## 🧩 Compatibility & Extensions
-
-* Vocoders: HiFi‑GAN (default), NSF, codec decoders (plug‑in interface at `hydravox/vocoder/`).
-* Frontend: grapheme → phoneme pluggable; custom prosody models supported.
-* Works with CPU (reduced speed) and NVIDIA GPUs; AMD/Metal support is experimental.
-
----
-
-## ❓ FAQ
-
-**Q: CPU‑only works?**  Yes, set `device=cpu` (much slower).
-
-**Q: How to stabilize very long texts?**  Lower `temperature`, raise `stability_penalty`, enable `--sil-merge-ms` and chunk by sentences.
-
-**Q: Voice cloning?**  If enabled, use the Speaker tab to add a voice with consent. See `docs/clone.md` (TBD).
-
-**Q: WebUI shows `TrustedHTML` error?**  Use modern browsers or update Gradio; if reverse proxying, ensure CSP allows inline scripts or disable strict CSP in dev.
-
----
-
-## 🐛 Troubleshooting
-
-* **FFmpeg not found** → install via `apt/yum/brew` and ensure it is in `PATH`.
-* **CUDA OOM** → reduce batch, heads, or enable half precision.
-* **Mixed CUDA versions** → match PyTorch CUDA with system CUDA runtime.
-* **WebUI keeps loading** → check console for CSP/`TrustedHTML` warnings; see `docs/webui.md`.
-* **Chinese mirrors** → set `PIP_INDEX_URL` to Aliyun for faster deps.
-
----
-
 ## 🤝 Contributing
 
 PRs welcome! Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) and follow our code style & test guidelines. Good first issues are labeled `good-first-issue`.
@@ -291,5 +256,5 @@ PRs welcome! Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) and follow our cod
 
 ## 🙏 Acknowledgements
 
-* **CosyVoice** authors and contributors.
-* Open-source community for phonemizers, vocoders, and tooling.
+* [**CosyVoice**](https://github.com/FunAudioLLM/CosyVoice) authors and contributors.
+* [**Better & Faster Large Language Models via Multi-token Prediction**](https://arxiv.org/abs/2404.19737)

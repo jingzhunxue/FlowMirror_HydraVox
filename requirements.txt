@@ -39,4 +39,5 @@ transformers==4.40.2
 uvicorn==0.30.0
 wetext==0.0.4
 wget==3.2
+silero_vad==5.1.2
 dotenv
