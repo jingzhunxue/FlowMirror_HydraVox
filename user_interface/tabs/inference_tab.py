@@ -8,8 +8,8 @@ logger = logging.getLogger("inference_tab")
 BACKEND = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
 # 默认参考音频配置
-DEFAULT_REFERENCE_AUDIO = "/home/ecs-user/code/zeying/Audio/HydraVox/yahan.wav"
-DEFAULT_REFERENCE_TEXT = "他就给宋神宗上书，他说可以免去我的官职，但是我要赎回我哥哥的性命。"
+DEFAULT_REFERENCE_AUDIO = "/home/ecs-user/code/happen/HydraVox/assets/samples/浪浪山的小妖怪/小猪妖/小猪妖1.wav"
+DEFAULT_REFERENCE_TEXT_FILE = "/home/ecs-user/code/happen/HydraVox/assets/samples/浪浪山的小妖怪/小猪妖/小猪妖1.txt"
 
 def get_speakers() -> List[str]:
     """从后端获取说话人列表"""
@@ -187,15 +187,26 @@ def synthesis_wrapper(
 def load_default_reference_audio():
     """加载默认参考音频"""
     try:
+        # 读取默认参考文本
+        if 'DEFAULT_REFERENCE_TEXT_FILE' in globals() and os.path.exists(DEFAULT_REFERENCE_TEXT_FILE):
+            try:
+                with open(DEFAULT_REFERENCE_TEXT_FILE, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                    if content:
+                        text_value = content
+            except Exception as te:
+                logger.warning(f"读取默认参考文本失败: {te}")
+
+        # 读取默认参考音频
         if os.path.exists(DEFAULT_REFERENCE_AUDIO):
             audio_data, sample_rate = sf.read(DEFAULT_REFERENCE_AUDIO, dtype="float32")
-            return (sample_rate, audio_data), DEFAULT_REFERENCE_TEXT
+            return (sample_rate, audio_data), text_value
         else:
             logger.warning(f"默认参考音频文件不存在: {DEFAULT_REFERENCE_AUDIO}")
-            return None, DEFAULT_REFERENCE_TEXT
+            return None, text_value
     except Exception as e:
         logger.error(f"加载默认参考音频失败: {e}")
-        return None, DEFAULT_REFERENCE_TEXT
+        return None, text_value
 
 def toggle_synthesis_mode(mode: str):
     """切换合成模式时的界面更新"""
@@ -351,7 +362,7 @@ def create_inference_tab():
                         type="numpy",
                         value=default_audio
                     )
-                    gr.Markdown("*已预加载默认参考音频 (yahan.wav)，你也可以上传自己的音频文件*", elem_classes=["tiny-muted"])
+                    gr.Markdown(f"*已预加载默认参考音频 ({os.path.basename(DEFAULT_REFERENCE_AUDIO)})，你也可以上传自己的音频文件*", elem_classes=["tiny-muted"])
         
         with gr.Row():
             with gr.Accordion("高级设置", open=False):
@@ -359,7 +370,7 @@ def create_inference_tab():
                     top_p = gr.Slider(0.0, 1.0, value=0.9, step=0.01, label="top_p")
                     top_k = gr.Slider(1, 100, value=10, step=1, label="top_k")
                 with gr.Row():
-                    win_size = gr.Slider(1, 256, value=32, step=8, label="win_size")
+                    win_size = gr.Slider(0, 256, value=32, step=8, label="win_size")
                     tau_r = gr.Slider(0.0, 1.0, value=0.2, step=0.01, label="tau_r")
                 inference_head_num = gr.Slider(1, 5, value=2, step=1, label="inference_head_num")
         

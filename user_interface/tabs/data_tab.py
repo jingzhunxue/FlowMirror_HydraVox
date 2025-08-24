@@ -686,96 +686,309 @@ def run_stage4(input_dir: str,
         yield (last_pct if last_pct >= 0 else 0), f"❌ 失败 · 用时 {elapsed}s", "\n".join(log_lines)
 
 
+def run_all_stages(input_dir: str, sample_rate: int = 16000, overwrite: bool = False):
+    """一键运行所有四个阶段的处理"""
+    if not input_dir or not os.path.isdir(input_dir):
+        yield 0, "❗ 输入目录无效", "请输入有效的输入目录"
+        return
+    
+    # 生成各阶段的输出目录
+    stage1_output = _generate_default_output_dir(input_dir, "_resample")
+    stage2_output = _generate_default_output_dir(stage1_output, "_vad")
+    stage3_output = _generate_default_output_dir(stage2_output, "_asr")
+    stage4_output = _generate_default_output_dir(stage3_output, "_token")
+    
+    total_stages = 4
+    stage_progress = 0
+    
+    try:
+        # 阶段1：格式转换与重采样
+        yield 5, "🎵 阶段1: 开始格式转换与重采样...", f"输入: {input_dir}\n输出: {stage1_output}"
+        
+        for progress, status, log in run_stage1(input_dir, stage1_output, sample_rate, overwrite):
+            overall_progress = int(progress * 0.25)  # 阶段1占总进度的25%
+            yield overall_progress, f"🎵 阶段1: {status}", f"当前阶段: 格式转换与重采样\n{log}"
+            if "完成" in status:
+                stage_progress = 1
+                break
+            elif "失败" in status:
+                yield overall_progress, f"❌ 阶段1失败: {status}", f"处理在阶段1失败\n{log}"
+                return
+        
+        # 阶段2：VAD处理
+        yield 26, "🔊 阶段2: 开始VAD语音活动检测...", f"输入: {stage1_output}\n输出: {stage2_output}"
+        
+        for progress, status, log, _ in run_stage2(
+            stage1_output, stage2_output, 0.5, 250, 200, 30, 0.5, 30, True
+        ):
+            overall_progress = 25 + int(progress * 0.25)  # 阶段2占总进度的25%
+            yield overall_progress, f"🔊 阶段2: {status}", f"当前阶段: VAD语音活动检测\n{log}"
+            if "完成" in status:
+                stage_progress = 2
+                break
+            elif "失败" in status:
+                yield overall_progress, f"❌ 阶段2失败: {status}", f"处理在阶段2失败\n{log}"
+                return
+        
+        # 阶段3：ASR转录
+        yield 51, "🎙️ 阶段3: 开始ASR语音识别转录...", f"输入: {stage2_output}\n输出: {stage3_output}"
+        
+        device, proc_count, _ = _auto_detect_device_and_processes()
+        device_choice = "GPU" if device == "GPU" else "CPU"
+        
+        for progress, status, log, _ in run_stage3(
+            stage2_output, stage3_output, device_choice, proc_count, True
+        ):
+            overall_progress = 50 + int(progress * 0.25)  # 阶段3占总进度的25%
+            yield overall_progress, f"🎙️ 阶段3: {status}", f"当前阶段: ASR语音识别转录\n{log}"
+            if "完成" in status:
+                stage_progress = 3
+                break
+            elif "失败" in status:
+                yield overall_progress, f"❌ 阶段3失败: {status}", f"处理在阶段3失败\n{log}"
+                return
+        
+        # 阶段4：Token提取
+        yield 76, "🧠 阶段4: 开始提取语音训练Token...", f"输入: {stage3_output}\n输出: {stage4_output}"
+        
+        for progress, status, log in run_stage4(
+            stage3_output, stage4_output, device_choice, proc_count
+        ):
+            overall_progress = 75 + int(progress * 0.25)  # 阶段4占总进度的25%
+            yield overall_progress, f"🧠 阶段4: {status}", f"当前阶段: 语音Token提取\n{log}"
+            if "完成" in status:
+                stage_progress = 4
+                break
+            elif "失败" in status:
+                yield overall_progress, f"❌ 阶段4失败: {status}", f"处理在阶段4失败\n{log}"
+                return
+        
+        # 全部完成
+        final_log = f"""✅ 所有阶段处理完成！
+
+📁 输入目录: {input_dir}
+📂 最终输出: {stage4_output}
+
+处理路径:
+🎵 阶段1 → {stage1_output}
+🔊 阶段2 → {stage2_output} 
+🎙️ 阶段3 → {stage3_output}
+🧠 阶段4 → {stage4_output}
+"""
+        yield 100, "🎉 全部阶段处理完成！", final_log
+        
+    except Exception as e:
+        yield stage_progress * 25, f"❌ 处理异常: {str(e)}", f"在阶段{stage_progress + 1}发生异常: {str(e)}"
+
+
 def create_data_tab():
     """创建数据处理tab界面"""
     with gr.Tab("📊 数据处理"):
-        gr.Markdown("### 🛠️ 音频数据预处理（四阶段）")
+        gr.Markdown("""
+        # 🛠️ 音频数据预处理工作流
+        
+        **四个阶段的处理流程：** 格式转换 → VAD分段 → ASR转录 → Token提取
+        """)
+        
         device_default, proc_default, device_detail = _auto_detect_device_and_processes()
-        with gr.Group():
-            link_stages = gr.Checkbox(value=False, label="自动串联阶段（上阶段输出作为下阶段输入）")
- 
+        
+        # 一键处理区域
+        with gr.Accordion("🚀 一键处理 - 自动运行全部四个阶段", open=True):
+            gr.Markdown("""
+            **功能：** 自动依次运行四个处理阶段，无需手动干预
+            
+            ⚡ **自动化流程：** 输入目录 → 格式转换 → VAD分段 → ASR转录 → Token提取
+            """)
+            
+            with gr.Group():
+                with gr.Column():
+                    with gr.Row():
+                        auto_input_dir = gr.Textbox(
+                            label="📁 输入目录", 
+                            placeholder="/path/to/input_dir",
+                            info="包含音频/视频文件的目录",
+                            scale=4
+                        )
+                        auto_sample_rate = gr.Dropdown(
+                            choices=[8000,16000,22050,44100,48000], 
+                            value=16000, 
+                            label="🎤 采样率 (Hz)",
+                            scale=1
+                        )
+                        auto_overwrite = gr.Checkbox(
+                            value=False, 
+                            label="⚠️ 覆盖文件",
+                            info="覆盖已存在的输出文件",
+                            scale=1
+                        )
+                    
+                    with gr.Row():
+                        auto_start_btn = gr.Button("🚀 开始一键处理", variant="primary", scale=1, size="lg")
+                        auto_stop_btn = gr.Button("⏹️ 停止处理", variant="secondary", scale=1, size="lg")
+                    
+                    with gr.Row():
+                        auto_progress = gr.Slider(0, 100, value=0, step=1, label="📊 总体进度 (%)", interactive=False)
+                    
+                    auto_status = gr.Textbox(label="📋 处理状态", interactive=False, lines=2)
+                    auto_log = gr.Textbox(label="📝 详细日志", lines=6, interactive=False, show_copy_button=True)
+
         # 阶段1：格式转换与重采样
-        with gr.Accordion("阶段1｜格式转换与重采样", open=True):
-            with gr.Row():
-                s1_input_dir = gr.Textbox(label="输入目录", placeholder="/path/to/input_dir")
-                s1_auto_sync = gr.Checkbox(value=True, label="自动同步输出路径（_resample）")
-                s1_output_dir = gr.Textbox(label="输出目录", placeholder="自动同步或手动填写")
-            with gr.Row():
-                s1_sr = gr.Dropdown(choices=[8000,16000,22050,44100,48000], value=16000, label="采样率 (Hz)")
-                s1_overwrite = gr.Checkbox(value=False, label="覆盖已存在文件")
-            with gr.Row():
-                s1_preview_btn = gr.Button("👀 预览变更", variant="secondary")
-                s1_start_btn = gr.Button("▶️ 开始处理", variant="primary")
-            s1_preview_df = gr.Dataframe(headers=["源文件", "目标文件"], label="映射预览（前50条）", interactive=False)
-            with gr.Row():
-                s1_total_num = gr.Number(label="待处理文件数", interactive=False)
-                s1_progress = gr.Slider(0, 100, value=0, step=1, label="进度 (%)", interactive=False)
-            s1_status = gr.Textbox(label="状态", interactive=False)
-            s1_log = gr.Textbox(label="运行日志", lines=4, interactive=False)
+        with gr.Accordion("🎵 阶段 1 - 格式转换与重采样", open=False):
+            gr.Markdown("**功能：** 将各种音频/视频格式统一转换为 16kHz WAV 格式")
+            
+            with gr.Group():
+                with gr.Column():
+                    with gr.Row():
+                        s1_input_dir = gr.Textbox(label="📁 输入目录", placeholder="/path/to/input_dir", scale=3)
+                        s1_auto_sync = gr.Checkbox(value=True, label="🔄 自动同步输出路径", info="添加_resample后缀", scale=1)
+                        s1_output_dir = gr.Textbox(label="📂 输出目录", placeholder="自动同步或手动填写", scale=3)
+                        
+                    with gr.Row():
+                        s1_sr = gr.Dropdown(
+                            choices=[8000,16000,22050,44100,48000], 
+                            value=16000, 
+                            label="🎤 采样率 (Hz)",
+                            scale=1
+                        )
+                        s1_overwrite = gr.Checkbox(value=False, label="⚠️ 覆盖已存在文件", scale=1)
+                        
+                    with gr.Row():
+                        s1_preview_btn = gr.Button("👀 预览变更", variant="secondary", scale=1)
+                        s1_start_btn = gr.Button("▶️ 开始处理", variant="primary", scale=1)
+                        
+                    s1_preview_df = gr.Dataframe(
+                        headers=["源文件", "目标文件"], 
+                        label="📋 映射预览（前50条）", 
+                        interactive=False
+                    )
+                    
+                    with gr.Row():
+                        s1_total_num = gr.Number(label="📊 待处理文件数", interactive=False, scale=1)
+                        s1_progress = gr.Slider(0, 100, value=0, step=1, label="📈 进度 (%)", interactive=False, scale=2)
+                        
+                    s1_status = gr.Textbox(label="📋 状态", interactive=False)
+                    s1_log = gr.Textbox(label="📝 运行日志", lines=4, interactive=False, show_copy_button=True)
 
         # 阶段2：VAD 处理（Silero）
-        with gr.Accordion("阶段2｜VAD 处理（Silero）", open=False):
-            with gr.Row():
-                s2_input_dir = gr.Textbox(label="输入目录", placeholder="默认衔接阶段1输出")
-                s2_auto_sync = gr.Checkbox(value=True, label="自动同步输出路径（_vad）")
-                s2_output_dir = gr.Textbox(label="输出目录", placeholder="自动同步或手动填写")
-            with gr.Row():
-                s2_threshold = gr.Slider(0.0, 1.0, value=0.5, step=0.01, label="置信度阈值 threshold")
-                s2_min_speech_ms = gr.Number(value=250, label="最短语音 ms")
-                s2_min_silence_ms = gr.Number(value=200, label="最短静音 ms")
-                s2_pad_ms = gr.Number(value=30, label="前后填充 ms")
-            with gr.Row():
-                s2_min_seg = gr.Number(value=0.5, label="最短片段 s")
-                s2_max_seg = gr.Number(value=30, label="最长片段 s")
-            with gr.Row():
-                s2_preview_btn = gr.Button("👀 预览", variant="secondary")
-                s2_start_btn = gr.Button("▶️ 开始处理", variant="primary")
-            with gr.Row():
-                s2_progress = gr.Slider(0, 100, value=0, step=1, label="进度 (%)", interactive=False)
-            s2_status = gr.Textbox(label="状态", interactive=False)
-            s2_log = gr.Textbox(label="运行日志", lines=4, interactive=False)
+        with gr.Accordion("🔊 阶段 2 - VAD 语音活动检测", open=False):
+            gr.Markdown("**功能：** 使用 Silero VAD 检测并分割语音片段，去除静音部分")
+            
+            with gr.Group():
+                with gr.Column():
+                    with gr.Row():
+                        s2_input_dir = gr.Textbox(label="📁 输入目录", placeholder="默认衔接阶段1输出", scale=3)
+                        s2_auto_sync = gr.Checkbox(value=True, label="🔄 自动同步输出路径", info="添加_vad后缀", scale=1)
+                        s2_output_dir = gr.Textbox(label="📂 输出目录", placeholder="自动同步或手动填写", scale=3)
+                        
+                    with gr.Accordion("⚙️ VAD 参数设置", open=False):
+                        with gr.Row():
+                            s2_threshold = gr.Slider(0.0, 1.0, value=0.5, step=0.01, label="🎯 置信度阈值", info="越高越严格")
+                            s2_min_speech_ms = gr.Number(value=250, label="🗣️ 最短语音 (ms)")
+                            s2_min_silence_ms = gr.Number(value=200, label="🔇 最短静音 (ms)")
+                            s2_pad_ms = gr.Number(value=30, label="🔧 前后填充 (ms)")
+                        with gr.Row():
+                            s2_min_seg = gr.Number(value=0.5, label="⏱️ 最短片段 (s)")
+                            s2_max_seg = gr.Number(value=30, label="⏰ 最长片段 (s)")
+                            
+                    with gr.Row():
+                        s2_preview_btn = gr.Button("👀 预览", variant="secondary", scale=1)
+                        s2_start_btn = gr.Button("▶️ 开始处理", variant="primary", scale=1)
+                        
+                    with gr.Row():
+                        s2_progress = gr.Slider(0, 100, value=0, step=1, label="📈 进度 (%)", interactive=False)
+                        
+                    s2_status = gr.Textbox(label="📋 状态", interactive=False)
+                    s2_log = gr.Textbox(label="📝 运行日志", lines=4, interactive=False, show_copy_button=True)
 
         # 阶段3：ASR 处理
-        with gr.Accordion("阶段3｜ASR 处理", open=False):
-            with gr.Row():
-                s3_input_dir = gr.Textbox(label="输入目录", placeholder="默认衔接阶段2输出")
-                s3_auto_sync = gr.Checkbox(value=True, label="自动同步输出路径（_asr）")
-                s3_output_dir = gr.Textbox(label="输出目录", placeholder="自动同步或手动填写")
-            with gr.Row():
-                s3_device = gr.Dropdown(choices=["自动", "CPU", "GPU"], value=("GPU" if device_default=="GPU" else "CPU"), label="设备")
-                s3_processes = gr.Number(value=proc_default, label="进程数")
-                s3_detect_btn = gr.Button("🔄 刷新设备", variant="secondary")
-            with gr.Row():
-                s3_preview_btn = gr.Button("👀 预览", variant="secondary")
-                s3_start_btn = gr.Button("▶️ 开始处理", variant="primary")
-            with gr.Row():
-                s3_progress = gr.Slider(0, 100, value=0, step=1, label="进度 (%)", interactive=False)
-            s3_status = gr.Textbox(label="状态", interactive=False)
-            s3_log = gr.Textbox(label="运行日志", lines=4, interactive=False)
-            s3_device_info = gr.Textbox(value=device_detail, label="设备检测", interactive=False)
+        with gr.Accordion("🎙️ 阶段 3 - ASR 语音识别转录", open=False):
+            gr.Markdown("**功能：** 使用语音识别技术将音频转换为文本，生成训练数据集")
+            
+            with gr.Group():
+                with gr.Column():
+                    with gr.Row():
+                        s3_input_dir = gr.Textbox(label="📁 输入目录", placeholder="默认衔接阶段2输出", scale=3)
+                        s3_auto_sync = gr.Checkbox(value=True, label="🔄 自动同步输出路径", info="添加_asr后缀", scale=1)
+                        s3_output_dir = gr.Textbox(label="📂 输出目录", placeholder="自动同步或手动填写", scale=3)
+                        
+                    with gr.Accordion("⚙️ 计算资源设置", open=False):
+                        with gr.Row():
+                            s3_device = gr.Dropdown(
+                                choices=["自动", "CPU", "GPU"], 
+                                value=("GPU" if device_default=="GPU" else "CPU"), 
+                                label="💻 计算设备"
+                            )
+                            s3_processes = gr.Number(value=proc_default, label="🔄 并行进程数")
+                            s3_detect_btn = gr.Button("🔄 刷新设备检测", variant="secondary", size="sm")
+                        s3_device_info = gr.Textbox(value=device_detail, label="ℹ️ 设备检测信息", interactive=False)
+                        
+                    with gr.Row():
+                        s3_preview_btn = gr.Button("👀 预览", variant="secondary", scale=1)
+                        s3_start_btn = gr.Button("▶️ 开始处理", variant="primary", scale=1)
+                        
+                    with gr.Row():
+                        s3_progress = gr.Slider(0, 100, value=0, step=1, label="📈 进度 (%)", interactive=False)
+                        
+                    s3_status = gr.Textbox(label="📋 状态", interactive=False)
+                    s3_log = gr.Textbox(label="📝 运行日志", lines=4, interactive=False, show_copy_button=True)
 
         # 阶段4：提取训练用 Token
-        with gr.Accordion("阶段4｜提取训练用 Token", open=False):
-            with gr.Row():
-                s4_input_dir = gr.Textbox(label="输入目录", placeholder="默认衔接阶段3输出")
-                s4_auto_sync = gr.Checkbox(value=True, label="自动同步输出路径（_token）")
-                s4_output_dir = gr.Textbox(label="输出目录", placeholder="自动同步或手动填写")
-            with gr.Row():
-                s4_device = gr.Dropdown(choices=["自动", "CPU", "GPU"], value=("GPU" if device_default=="GPU" else "CPU"), label="设备")
-                s4_processes = gr.Number(value=proc_default, label="进程数")
-                s4_detect_btn = gr.Button("🔄 刷新设备", variant="secondary")
-            with gr.Row():
-                s4_preview_btn = gr.Button("👀 预览", variant="secondary")
-                s4_start_btn = gr.Button("▶️ 开始处理", variant="primary")
-            with gr.Row():
-                s4_progress = gr.Slider(0, 100, value=0, step=1, label="进度 (%)", interactive=False)
-            s4_status = gr.Textbox(label="状态", interactive=False)
-            s4_log = gr.Textbox(label="运行日志", lines=4, interactive=False)
-            s4_device_info = gr.Textbox(value=device_detail, label="设备检测", interactive=False)
-         # ---------------- 新增（结束） ----------------
- 
-         # 事件绑定（预处理）
-         # 阶段1：自动同步输出、链到阶段2输入
+        with gr.Accordion("🧠 阶段 4 - 提取语音训练 Token", open=False):
+            gr.Markdown("**功能：** 从音频数据中提取用于训练的语音 Token，为模型训练做准备")
+            
+            with gr.Group():
+                with gr.Column():
+                    with gr.Row():
+                        s4_input_dir = gr.Textbox(label="📁 输入目录", placeholder="默认衔接阶段3输出", scale=3)
+                        s4_auto_sync = gr.Checkbox(value=True, label="🔄 自动同步输出路径", info="添加_token后缀", scale=1)
+                        s4_output_dir = gr.Textbox(label="📂 输出目录", placeholder="自动同步或手动填写", scale=3)
+                        
+                    with gr.Accordion("⚙️ 计算资源设置", open=False):
+                        with gr.Row():
+                            s4_device = gr.Dropdown(
+                                choices=["自动", "CPU", "GPU"], 
+                                value=("GPU" if device_default=="GPU" else "CPU"), 
+                                label="💻 计算设备"
+                            )
+                            s4_processes = gr.Number(value=proc_default, label="🔄 并行进程数")
+                            s4_detect_btn = gr.Button("🔄 刷新设备检测", variant="secondary", size="sm")
+                        s4_device_info = gr.Textbox(value=device_detail, label="ℹ️ 设备检测信息", interactive=False)
+                        
+                    with gr.Row():
+                        s4_preview_btn = gr.Button("👀 预览", variant="secondary", scale=1)
+                        s4_start_btn = gr.Button("▶️ 开始处理", variant="primary", scale=1)
+                        
+                    with gr.Row():
+                        s4_progress = gr.Slider(0, 100, value=0, step=1, label="📈 进度 (%)", interactive=False)
+                        
+                    s4_status = gr.Textbox(label="📋 状态", interactive=False)
+                    s4_log = gr.Textbox(label="📝 运行日志", lines=4, interactive=False, show_copy_button=True)
+
+        gr.Markdown("""
+        ---
+        
+        ## 💡 使用提示
+        
+        - **推荐使用一键处理** 获得最佳体验，自动化完成全部流程
+        - **阶段顺序不可颠倒**：每个阶段都依赖前一阶段的输出
+        - **GPU 加速**：阶段3和4支持GPU加速，可显著提升处理速度
+        - **监控进度**：每个阶段都有实时进度显示和详细日志
+        
+        ⚠️ **注意**：处理大量文件时请确保有足够的磁盘空间和计算资源
+        """)
+
+        # 隐藏的状态变量，用于单独运行阶段时传递link_enabled=False
+        link_disabled_state = gr.State(value=False)
+
+        # 一键处理事件绑定
+        auto_start_btn.click(
+            fn=run_all_stages,
+            inputs=[auto_input_dir, auto_sample_rate, auto_overwrite],
+            outputs=[auto_progress, auto_status, auto_log],
+        )
+
+        # 事件绑定（预处理）
+        # 阶段1：自动同步输出、链到阶段2输入
         s1_input_dir.change(
             fn=lambda d, a: _sync_output_dir(d, a, "_resample"),
             inputs=[s1_input_dir, s1_auto_sync],
@@ -785,11 +998,6 @@ def create_data_tab():
             fn=lambda a, d: _sync_output_dir(d, a, "_resample"),
             inputs=[s1_auto_sync, s1_input_dir],
             outputs=s1_output_dir,
-        )
-        s1_output_dir.change(
-            fn=_chain_next_input,
-            inputs=[s1_output_dir, link_stages],
-            outputs=s2_input_dir,
         )
 
         # 阶段2：自动同步输出、链到阶段3输入
@@ -803,11 +1011,6 @@ def create_data_tab():
             inputs=[s2_auto_sync, s2_input_dir],
             outputs=s2_output_dir,
         )
-        s2_output_dir.change(
-            fn=_chain_next_input,
-            inputs=[s2_output_dir, link_stages],
-            outputs=s3_input_dir,
-        )
 
         # 阶段3：自动同步输出、链到阶段4输入
         s3_input_dir.change(
@@ -819,11 +1022,6 @@ def create_data_tab():
             fn=lambda a, d: _sync_output_dir(d, a, "_asr"),
             inputs=[s3_auto_sync, s3_input_dir],
             outputs=s3_output_dir,
-        )
-        s3_output_dir.change(
-            fn=_chain_next_input,
-            inputs=[s3_output_dir, link_stages],
-            outputs=s4_input_dir,
         )
 
         # 阶段4：自动同步输出
@@ -858,7 +1056,7 @@ def create_data_tab():
         )
         s2_start_btn.click(
             fn=run_stage2,
-            inputs=[s2_input_dir, s2_output_dir, s2_threshold, s2_min_speech_ms, s2_min_silence_ms, s2_pad_ms, s2_min_seg, s2_max_seg, link_stages],
+            inputs=[s2_input_dir, s2_output_dir, s2_threshold, s2_min_speech_ms, s2_min_silence_ms, s2_pad_ms, s2_min_seg, s2_max_seg, link_disabled_state],
             outputs=[s2_progress, s2_status, s2_log, s3_input_dir],
         )
 
@@ -870,7 +1068,7 @@ def create_data_tab():
         )
         s3_start_btn.click(
             fn=run_stage3,
-            inputs=[s3_input_dir, s3_output_dir, s3_device, s3_processes, link_stages],
+            inputs=[s3_input_dir, s3_output_dir, s3_device, s3_processes, link_disabled_state],
             outputs=[s3_progress, s3_status, s3_log, s4_input_dir],
         )
 
