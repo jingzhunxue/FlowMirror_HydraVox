@@ -1,15 +1,61 @@
 import os, io, base64, requests, numpy as np, gradio as gr
-from typing import Tuple, List
+from typing import Tuple, List, Dict, Optional
 import logging
 import soundfile as sf
+from pathlib import Path
 
 logger = logging.getLogger("inference_tab")
 
 BACKEND = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
-# 默认参考音频配置
-DEFAULT_REFERENCE_AUDIO = "/home/ecs-user/code/happen/HydraVox/assets/samples/浪浪山的小妖怪/小猪妖/小猪妖1.wav"
-DEFAULT_REFERENCE_TEXT_FILE = "/home/ecs-user/code/happen/HydraVox/assets/samples/浪浪山的小妖怪/小猪妖/小猪妖1.txt"
+# 获取项目根目录
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+SAMPLES_DIR = PROJECT_ROOT / "assets/samples"
+
+# 默认参考音频配置（使用相对路径）
+DEFAULT_REFERENCE_AUDIO = PROJECT_ROOT / "assets/samples/浪浪山的小妖怪/小猪妖/小猪妖1.wav"
+DEFAULT_REFERENCE_TEXT_FILE = PROJECT_ROOT / "assets/samples/浪浪山的小妖怪/小猪妖/小猪妖1.txt"
+
+def scan_reference_samples() -> Dict[str, Dict[str, Path]]:
+    """扫描assets/samples目录，获取所有可用的参考音频和文本文件"""
+    samples = {}
+    
+    if not SAMPLES_DIR.exists():
+        logger.warning(f"Samples directory not found: {SAMPLES_DIR}")
+        return samples
+    
+    try:
+        # 遍历所有作品文件夹（如：浪浪山的小妖怪、小猪佩奇等）
+        for work_dir in SAMPLES_DIR.iterdir():
+            if not work_dir.is_dir():
+                continue
+            
+            # 遍历每个作品下的角色文件夹
+            for character_dir in work_dir.iterdir():
+                if not character_dir.is_dir():
+                    continue
+                
+                # 查找音频和文本文件对
+                for wav_file in character_dir.glob("*.wav"):
+                    txt_file = wav_file.with_suffix(".txt")
+                    if txt_file.exists():
+                        # 生成显示名称：作品名/角色名/文件名
+                        display_name = f"{work_dir.name}/{character_dir.name}/{wav_file.stem}"
+                        samples[display_name] = {
+                            "audio": wav_file,
+                            "text": txt_file
+                        }
+                        logger.debug(f"Found sample: {display_name}")
+        
+        logger.info(f"Found {len(samples)} reference samples in {SAMPLES_DIR}")
+        
+    except Exception as e:
+        logger.error(f"Error scanning samples directory: {e}")
+    
+    return samples
+
+# 在启动时扫描一次样本目录
+REFERENCE_SAMPLES = scan_reference_samples()
 
 def get_speakers() -> List[str]:
     """从后端获取说话人列表"""
@@ -185,53 +231,106 @@ def synthesis_wrapper(
         return None
 
 def load_default_reference_audio():
-    """加载默认参考音频"""
+    """加载默认参考音频和文本"""
+    text_value = ""  # 初始化默认文本值
+    audio_value = None  # 初始化默认音频值
+    
     try:
         # 读取默认参考文本
-        if 'DEFAULT_REFERENCE_TEXT_FILE' in globals() and os.path.exists(DEFAULT_REFERENCE_TEXT_FILE):
+        if DEFAULT_REFERENCE_TEXT_FILE.exists():
             try:
                 with open(DEFAULT_REFERENCE_TEXT_FILE, "r", encoding="utf-8") as f:
                     content = f.read().strip()
                     if content:
                         text_value = content
+                        logger.info(f"成功加载默认参考文本: {len(content)} 字符")
             except Exception as te:
                 logger.warning(f"读取默认参考文本失败: {te}")
+        else:
+            logger.warning(f"默认参考文本文件不存在: {DEFAULT_REFERENCE_TEXT_FILE}")
 
         # 读取默认参考音频
-        if os.path.exists(DEFAULT_REFERENCE_AUDIO):
-            audio_data, sample_rate = sf.read(DEFAULT_REFERENCE_AUDIO, dtype="float32")
-            return (sample_rate, audio_data), text_value
+        if DEFAULT_REFERENCE_AUDIO.exists():
+            try:
+                audio_data, sample_rate = sf.read(str(DEFAULT_REFERENCE_AUDIO), dtype="float32")
+                audio_value = (sample_rate, audio_data)
+                logger.info(f"成功加载默认参考音频: {sample_rate}Hz, {len(audio_data)/sample_rate:.2f}秒")
+            except Exception as ae:
+                logger.error(f"读取默认参考音频失败: {ae}")
         else:
             logger.warning(f"默认参考音频文件不存在: {DEFAULT_REFERENCE_AUDIO}")
-            return None, text_value
+            
+        return audio_value, text_value
+        
     except Exception as e:
         logger.error(f"加载默认参考音频失败: {e}")
         return None, text_value
+
+def load_reference_sample(sample_name: str) -> Tuple[Optional[Tuple[int, np.ndarray]], str]:
+    """加载指定的参考样本音频和文本"""
+    if not sample_name or sample_name not in REFERENCE_SAMPLES:
+        return load_default_reference_audio()
+    
+    sample_info = REFERENCE_SAMPLES[sample_name]
+    text_value = ""
+    audio_value = None
+    
+    try:
+        # 读取文本
+        if sample_info["text"].exists():
+            with open(sample_info["text"], "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content:
+                    text_value = content
+                    logger.info(f"加载参考文本 [{sample_name}]: {len(content)} 字符")
+        
+        # 读取音频
+        if sample_info["audio"].exists():
+            audio_data, sample_rate = sf.read(str(sample_info["audio"]), dtype="float32")
+            audio_value = (sample_rate, audio_data)
+            logger.info(f"加载参考音频 [{sample_name}]: {sample_rate}Hz, {len(audio_data)/sample_rate:.2f}秒")
+    
+    except Exception as e:
+        logger.error(f"加载参考样本失败 [{sample_name}]: {e}")
+        return load_default_reference_audio()
+    
+    return audio_value, text_value
 
 def toggle_synthesis_mode(mode: str):
     """切换合成模式时的界面更新"""
     if mode == "预设说话人":
         return (
-            gr.update(visible=True),   # speaker_row 显示
-            gr.update(visible=False),  # zero_shot_row 隐藏
-            gr.update(value=""),       # 清空prompt_text
-            gr.update(value=None),     # 清空prompt_audio
+            gr.update(visible=True),   # speaker_row
+            gr.update(visible=False),  # zero_shot_row
+            gr.update(value=""),       # prompt_text
+            gr.update(value=None),     # prompt_audio
+            gr.update(visible=False),  # reference_preset
         )
     elif mode == "Zero-shot":
         # 加载默认参考音频
         default_audio, default_text = load_default_reference_audio()
+        # 获取默认选项
+        sample_names = list(REFERENCE_SAMPLES.keys())
+        default_sample = sample_names[0] if sample_names else None
+        
         return (
-            gr.update(visible=False),  # speaker_row 隐藏
-            gr.update(visible=True),   # zero_shot_row 显示
-            gr.update(value=default_text),  # 设置默认文本
-            gr.update(value=default_audio), # 设置默认音频
+            gr.update(visible=False),  # speaker_row
+            gr.update(visible=True),   # zero_shot_row
+            gr.update(value=default_text),  # prompt_text
+            gr.update(value=default_audio), # prompt_audio
+            gr.update(
+                visible=True,
+                choices=sample_names,
+                value=default_sample
+            ),  # reference_preset
         )
     else:
         return (
-            gr.update(visible=True),   # 默认显示预设说话人
-            gr.update(visible=False),
-            gr.update(value=""),       # 清空prompt_text
-            gr.update(value=None),     # 清空prompt_audio
+            gr.update(visible=True),   # speaker_row
+            gr.update(visible=False),  # zero_shot_row
+            gr.update(value=""),       # prompt_text
+            gr.update(value=None),     # prompt_audio
+            gr.update(visible=False),  # reference_preset
         )
 
 def clear_inputs():
@@ -342,10 +441,22 @@ def create_inference_tab():
                         """
                         <div style=\"display:flex;align-items:center;gap:8px;margin:8px 0 4px 0;\">
                             <span style=\"font-weight:600;color:#34495e;\">Zero-shot 语音克隆</span>
-                            <span style=\"font-size:12px;color:#95a5a6;\">上传参考音频进行语音克隆</span>
+                            <span style=\"font-size:12px;color:#95a5a6;\">选择或上传参考音频进行语音克隆</span>
                         </div>
                         """
                     )
+                    
+                    # 预设参考音频选择
+                    sample_names = list(REFERENCE_SAMPLES.keys())
+                    reference_preset = gr.Dropdown(
+                        choices=sample_names,
+                        value=sample_names[0] if sample_names else None,
+                        label="预设参考音频",
+                        visible=False,
+                        interactive=True,
+                    )
+                    gr.Markdown("*选择一个预设的参考音频，或者上传自己的音频文件*", elem_classes=["tiny-muted"])
+                    
                     # 获取默认音频和文本
                     default_audio, default_text = load_default_reference_audio()
                     
@@ -362,7 +473,7 @@ def create_inference_tab():
                         type="numpy",
                         value=default_audio
                     )
-                    gr.Markdown(f"*已预加载默认参考音频 ({os.path.basename(DEFAULT_REFERENCE_AUDIO)})，你也可以上传自己的音频文件*", elem_classes=["tiny-muted"])
+                    gr.Markdown("*你可以从上方选择预设音频，或者直接上传自己的音频文件*", elem_classes=["tiny-muted"])
         
         with gr.Row():
             with gr.Accordion("高级设置", open=False):
@@ -391,7 +502,14 @@ def create_inference_tab():
         synthesis_mode.change(
             fn=toggle_synthesis_mode,
             inputs=[synthesis_mode],
-            outputs=[speaker_row, zero_shot_row, prompt_text, prompt_audio],
+            outputs=[speaker_row, zero_shot_row, prompt_text, prompt_audio, reference_preset],
+        )
+        
+        # 预设参考音频选择
+        reference_preset.change(
+            fn=load_reference_sample,
+            inputs=[reference_preset],
+            outputs=[prompt_audio, prompt_text],
         )
         
         # 合成按钮

@@ -1,0 +1,1 @@
+python main.py --ui-port 7788 --with-ui --api-port 7789

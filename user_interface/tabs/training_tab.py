@@ -564,32 +564,32 @@ def generate_training_plot(force_update: bool = False):
         import matplotlib.pyplot as plt
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
         title_id = training_state.current_training_id or "local"
-        fig.suptitle(f'训练进度 - {title_id}', fontsize=16)
+        fig.suptitle(f'Training Progress - {title_id}', fontsize=16)
 
         # Loss / Eval Loss
         if loss:
             ax1.plot(steps[:len(loss)], loss, color='blue', linewidth=2, marker='o', markersize=3, alpha=0.7, label='train loss')
         if eval_loss:
             ax1.plot(steps[:len(eval_loss)], eval_loss, color='purple', linewidth=2, marker='x', markersize=3, alpha=0.7, label='eval loss')
-        ax1.set_title('损失 (Loss)', fontsize=12)
-        ax1.set_xlabel('步数 (Steps)')
+        ax1.set_title('Loss', fontsize=12)
+        ax1.set_xlabel('Steps')
         ax1.set_ylabel('Loss')
         ax1.grid(True, alpha=0.3)
         if loss or eval_loss:
             ax1.legend()
 
-        # Grad Norm（Trainer 默认无，留空占位）
-        ax2.set_title('梯度范数 (Gradient Norm)', fontsize=12)
-        ax2.set_xlabel('步数 (Steps)')
+        # Grad Norm (Trainer default none, placeholder)
+        ax2.set_title('Gradient Norm', fontsize=12)
+        ax2.set_xlabel('Steps')
         ax2.set_ylabel('Grad Norm')
         ax2.grid(True, alpha=0.3)
-        ax2.text(0.5, 0.5, '暂无数据', transform=ax2.transAxes, ha='center', va='center', alpha=0.5)
+        ax2.text(0.5, 0.5, 'No Data', transform=ax2.transAxes, ha='center', va='center', alpha=0.5)
 
         # Learning Rate
         if learning_rate:
             ax3.plot(steps[:len(learning_rate)], learning_rate, color='green', linewidth=2, marker='^', markersize=3, alpha=0.7)
-        ax3.set_title('学习率 (Learning Rate)', fontsize=12)
-        ax3.set_xlabel('步数 (Steps)')
+        ax3.set_title('Learning Rate', fontsize=12)
+        ax3.set_xlabel('Steps')
         ax3.set_ylabel('Learning Rate')
         ax3.grid(True, alpha=0.3)
         ax3.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
@@ -597,8 +597,8 @@ def generate_training_plot(force_update: bool = False):
         # Epoch
         if epoch:
             ax4.plot(steps[:len(epoch)], epoch, color='red', linewidth=2, marker='d', markersize=3, alpha=0.7)
-        ax4.set_title('训练轮数 (Epoch)', fontsize=12)
-        ax4.set_xlabel('步数 (Steps)')
+        ax4.set_title('Epoch', fontsize=12)
+        ax4.set_xlabel('Steps')
         ax4.set_ylabel('Epoch')
         ax4.grid(True, alpha=0.3)
 
@@ -630,30 +630,30 @@ def _generate_sample_plot():
     epoch = steps / 50  # 假设50步为一个epoch
     
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
-    fig.suptitle('训练进度 - 示例数据', fontsize=16)
+    fig.suptitle('Training Progress - Sample Data', fontsize=16)
     
     ax1.plot(steps, loss, color='blue', linewidth=2)
-    ax1.set_title('训练损失 (Loss)', fontsize=12)
-    ax1.set_xlabel('步数 (Steps)')
+    ax1.set_title('Training Loss', fontsize=12)
+    ax1.set_xlabel('Steps')
     ax1.set_ylabel('Loss')
     ax1.grid(True, alpha=0.3)
     
     ax2.plot(steps, grad_norm, color='orange', linewidth=2)
-    ax2.set_title('梯度范数 (Gradient Norm)', fontsize=12)
-    ax2.set_xlabel('步数 (Steps)')
+    ax2.set_title('Gradient Norm', fontsize=12)
+    ax2.set_xlabel('Steps')
     ax2.set_ylabel('Grad Norm')
     ax2.grid(True, alpha=0.3)
     
     ax3.plot(steps, lr, color='green', linewidth=2)
-    ax3.set_title('学习率 (Learning Rate)', fontsize=12)
-    ax3.set_xlabel('步数 (Steps)')
+    ax3.set_title('Learning Rate', fontsize=12)
+    ax3.set_xlabel('Steps')
     ax3.set_ylabel('Learning Rate')
     ax3.grid(True, alpha=0.3)
     ax3.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
     
     ax4.plot(steps, epoch, color='red', linewidth=2)
-    ax4.set_title('训练轮数 (Epoch)', fontsize=12)
-    ax4.set_xlabel('步数 (Steps)')
+    ax4.set_title('Epoch', fontsize=12)
+    ax4.set_xlabel('Steps')
     ax4.set_ylabel('Epoch')
     ax4.grid(True, alpha=0.3)
     
