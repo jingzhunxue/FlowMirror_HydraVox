@@ -68,6 +68,8 @@ class LoadPTRequest(BaseModel):
 
 class TrainingRequest(BaseModel):
     """训练请求"""
+    model_config = {"protected_namespaces": ()}  # 禁用保护命名空间检查
+    
     config_file: Optional[str] = "configs/train/base.yaml"  # 配置文件路径
     model_type: str = "llm"  # 模型类型 llm/flow
     model_checkpoint: str  # 模型检查点路径
