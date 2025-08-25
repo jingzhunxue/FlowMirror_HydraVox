@@ -686,6 +686,149 @@ def run_stage4(input_dir: str,
         yield (last_pct if last_pct >= 0 else 0), f"❌ 失败 · 用时 {elapsed}s", "\n".join(log_lines)
 
 
+def _parse_comma_dirs(input_dirs_text: str) -> List[str]:
+    if not input_dirs_text:
+        return []
+    parts = [p.strip() for p in input_dirs_text.split(',')]
+    return [p for p in parts if p]
+
+
+def _dataset_total_len(ds) -> int:
+    try:
+        from datasets import Dataset, DatasetDict  # type: ignore
+        if isinstance(ds, Dataset):
+            return len(ds)
+        if isinstance(ds, DatasetDict):
+            return sum(len(v) for v in ds.values())
+    except Exception:
+        pass
+    try:
+        return len(ds)
+    except Exception:
+        return 0
+
+
+def _flatten_to_datasets(ds_obj) -> List["Dataset"]:
+    from datasets import Dataset, DatasetDict  # type: ignore
+    if isinstance(ds_obj, Dataset):
+        return [ds_obj]
+    if isinstance(ds_obj, DatasetDict):
+        return [v for v in ds_obj.values()]
+    return []
+
+
+def preview_stage5(input_dirs_text: str, output_dir: str):
+    paths = _parse_comma_dirs(input_dirs_text)
+    if not paths:
+        return "❗ 请输入至少一个输入目录，使用逗号分隔"
+    try:
+        from datasets import load_from_disk  # type: ignore
+    except Exception as e:
+        return f"缺少datasets依赖或导入失败: {e}"
+
+    lines: List[str] = []
+    total = 0
+    ok = 0
+    for p in paths:
+        if not os.path.isdir(p):
+            lines.append(f"- 跳过（非目录）: {p}")
+            continue
+        try:
+            ds = load_from_disk(p)
+            n = _dataset_total_len(ds)
+            lines.append(f"- ✓ {p} · {n} 条")
+            total += n
+            ok += 1
+        except Exception as e:
+            lines.append(f"- ✗ {p} · 加载失败: {e}")
+
+    out = output_dir or "(未指定，建议填写保存目录)"
+    head = [f"将合并 {ok}/{len(paths)} 个可用数据集，总计约 {total} 条", f"输出目录: {out}"]
+    return "\n".join(head + ["", *lines])
+
+
+def run_stage5_merge(input_dirs_text: str, output_dir: str):
+    """合并多个 HuggingFace 数据集（支持 Dataset / DatasetDict），并保存到 output_dir。
+    进度按阶段粗略估计并提供日志。
+    """
+    paths = _parse_comma_dirs(input_dirs_text)
+    if not paths:
+        yield 0, "❗ 请输入至少一个输入目录", ""
+        return
+    if not output_dir:
+        yield 0, "❗ 请输入输出目录", ""
+        return
+    try:
+        from datasets import load_from_disk, concatenate_datasets  # type: ignore
+    except Exception as e:
+        yield 0, f"缺少datasets依赖或导入失败: {e}", ""
+        return
+
+    log_lines: List[str] = []
+    ds_list_all = []
+    ok = 0
+    total_dirs = len(paths)
+
+    # 读取阶段
+    for idx, p in enumerate(paths, start=1):
+        if not os.path.isdir(p):
+            log_lines.append(f"跳过（非目录）: {p}")
+            yield int(idx * 10 / max(1, total_dirs)), f"读取中 ({idx}/{total_dirs})", "\n".join(log_lines)
+            continue
+        try:
+            ds_obj = load_from_disk(p)
+            subs = _flatten_to_datasets(ds_obj)
+            if not subs:
+                log_lines.append(f"{p} · 不含可用 split，已跳过")
+            else:
+                for ds in subs:
+                    ds_list_all.append(ds)
+                ln = sum(len(s) for s in subs)
+                log_lines.append(f"{p} · 读取 {ln} 条")
+                ok += 1
+        except Exception as e:
+            log_lines.append(f"{p} · 加载失败: {e}")
+        yield int(idx * 10 / max(1, total_dirs)), f"读取中 ({idx}/{total_dirs})", "\n".join(log_lines)
+
+    if not ds_list_all:
+        yield 0, "❌ 没有可合并的数据集", "\n".join(log_lines)
+        return
+
+    # 对齐列（取交集）
+    try:
+        all_cols = [set(ds.column_names) for ds in ds_list_all]
+        common_cols = list(set.intersection(*all_cols)) if all_cols else []
+        if not common_cols:
+            yield 0, "❌ 各数据列无交集，无法合并", "\n".join(log_lines)
+            return
+        log_lines.append(f"列对齐（交集）: {sorted(common_cols)}")
+        yield 20, "对齐字段", "\n".join(log_lines)
+        ds_aligned = [ds.select_columns(common_cols) for ds in ds_list_all]
+    except Exception as e:
+        yield 0, f"❌ 对齐列失败: {e}", "\n".join(log_lines)
+        return
+
+    # 合并阶段
+    try:
+        merged = concatenate_datasets(ds_aligned)
+        log_lines.append(f"合并完成，合计 {len(merged)} 条")
+        yield 60, "合并中", "\n".join(log_lines)
+    except Exception as e:
+        yield 0, f"❌ 合并失败: {e}", "\n".join(log_lines)
+        return
+
+    # 保存阶段
+    try:
+        from pathlib import Path as _Path
+        _Path(output_dir).parent.mkdir(parents=True, exist_ok=True)
+        merged.save_to_disk(output_dir)
+        log_lines.append(f"已保存至 {output_dir}")
+        yield 100, f"✅ 合并完成 · 共 {len(merged)} 条", "\n".join(log_lines)
+    except Exception as e:
+        yield 90, f"❌ 保存失败: {e}", "\n".join(log_lines)
+        return
+
+
 def run_all_stages(input_dir: str, sample_rate: int = 16000, overwrite: bool = False):
     """一键运行所有四个阶段的处理"""
     if not input_dir or not os.path.isdir(input_dir):
@@ -964,6 +1107,22 @@ def create_data_tab():
                     s4_status = gr.Textbox(label="📋 状态", interactive=False)
                     s4_log = gr.Textbox(label="📝 运行日志", lines=4, interactive=False, show_copy_button=True)
 
+        # 阶段5：数据集合并（可选）
+        with gr.Accordion("🧩 阶段 5 - 数据集合并 (可选)", open=False):
+            gr.Markdown("**功能：** 将多个前面阶段生成的数据集目录合并为一个新的 HuggingFace 数据集。输入多个目录时使用英文逗号分隔。")
+            with gr.Group():
+                with gr.Column():
+                    with gr.Row():
+                        s5_input_dirs = gr.Textbox(label="📁 输入数据集目录（逗号分隔）", placeholder="/path/to/ds1,/path/to/ds2,...", scale=3)
+                        s5_output_dir = gr.Textbox(label="📂 合并输出目录", placeholder="/path/to/merged_dataset", scale=3)
+                    with gr.Row():
+                        s5_preview_btn = gr.Button("👀 预览", variant="secondary", scale=1)
+                        s5_start_btn = gr.Button("▶️ 开始合并", variant="primary", scale=1)
+                    with gr.Row():
+                        s5_progress = gr.Slider(0, 100, value=0, step=1, label="📈 进度 (%)", interactive=False)
+                    s5_status = gr.Textbox(label="📋 状态", interactive=False)
+                    s5_log = gr.Textbox(label="📝 合并日志", lines=6, interactive=False, show_copy_button=True)
+
         gr.Markdown("""
         ---
         
@@ -973,6 +1132,7 @@ def create_data_tab():
         - **阶段顺序不可颠倒**：每个阶段都依赖前一阶段的输出
         - **GPU 加速**：阶段3和4支持GPU加速，可显著提升处理速度
         - **监控进度**：每个阶段都有实时进度显示和详细日志
+        - **可选合并**：阶段5可将多个阶段产出的数据集进行合并
         
         ⚠️ **注意**：处理大量文件时请确保有足够的磁盘空间和计算资源
         """)
@@ -1095,3 +1255,15 @@ def create_data_tab():
             inputs=[],
             outputs=[s4_device_info, s4_processes, s4_device],
         ) 
+
+        # 阶段5：预览与开始合并
+        s5_preview_btn.click(
+            fn=preview_stage5,
+            inputs=[s5_input_dirs, s5_output_dir],
+            outputs=s5_status,
+        )
+        s5_start_btn.click(
+            fn=run_stage5_merge,
+            inputs=[s5_input_dirs, s5_output_dir],
+            outputs=[s5_progress, s5_status, s5_log],
+        )

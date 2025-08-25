@@ -2,6 +2,7 @@ import os, io, base64, requests, numpy as np
 import gradio as gr
 from typing import Tuple, List
 from .tabs import create_inference_tab, create_data_tab, create_training_tab
+from .tabs.speaker_manage import create_speaker_manage_tab
 from pathlib import Path
 
 BACKEND = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
@@ -89,6 +90,9 @@ def create_main_ui():
             
             # 训练tab
             create_training_tab()
+            
+            # 说话人管理tab
+            create_speaker_manage_tab()
         
         # 底部信息
         gr.HTML(f"""

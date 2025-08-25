@@ -94,14 +94,27 @@ def refresh_speakers():
     return gr.update(choices=speakers, value=speakers[0] if speakers else "default"), info
 
 def load_pt(llm_pt: str, flow_pt: str):
-    """加载模型权重"""
-    payload = {
-        "llm_pt": llm_pt,
-        "flow_pt": flow_pt
-    }
-    resp = requests.post(f"{BACKEND}/api/v1/load_pt", json=payload)
-    resp.raise_for_status()
-    return resp.json()
+    """加载模型权重，返回面向用户的状态文本，并弹出提示。"""
+    try:
+        if not llm_pt or not flow_pt:
+            gr.Warning("请选择 LLM 与 Flow 权重文件后再加载。")
+            return "❗ 请先选择 LLM 与 Flow 权重文件。"
+
+        payload = {
+            "llm_pt": llm_pt,
+            "flow_pt": flow_pt
+        }
+        resp = requests.post(f"{BACKEND}/api/v1/load_pt", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        # 兼容后端不同返回格式
+        msg = data.get("message") if isinstance(data, dict) else str(data)
+        gr.Info("模型权重加载成功")
+        return f"✅ 加载成功\nLLM: {llm_pt}\nFlow: {flow_pt}\n消息: {msg}"
+    except Exception as e:
+        logger.error(f"加载模型失败: {e}")
+        gr.Warning(f"加载失败: {e}")
+        return f"❌ 加载失败: {e}"
 
 def tts_once(
     text: str,
@@ -372,6 +385,8 @@ def create_inference_tab():
             with gr.Column(scale=1):
                 # 通过elem_id应用垂直居中样式
                 load_pt_btn = gr.Button("🔄 加载模型", variant="secondary", elem_id="load-pt-btn")
+        # 模型加载状态显示
+        model_load_info = gr.Markdown(value="", elem_classes=["tiny-muted"])
         # 局部样式：让按钮容器充满列高并垂直居中
         gr.HTML(
             """
@@ -543,7 +558,7 @@ def create_inference_tab():
         load_pt_btn.click(
             fn=load_pt,
             inputs=[llm_weight, flow_weight],
-            outputs=[],
+            outputs=[model_load_info],
         )
         
         gr.Markdown(f"**后端地址**: `{BACKEND}`") 

@@ -805,12 +805,24 @@ def generate_training_plot(force_update: bool = False):
 
 # 已删除示例图表生成函数
 
-def get_model_list():
-    """获取训练输出目录下的模型文件夹列表"""
+def get_model_list(which: str = "llm"):
+    """获取训练输出目录下的模型文件夹列表（按模型类型区分）
+    
+    Args:
+        which: "llm" 或 "flow"，用于选择首要扫描目录
+    """
     try:
         # 训练输出目录 - 按优先级排序，避免重复扫描
-        primary_output_dir = "checkpoints/training"  # 主要输出目录
-        fallback_dirs = ["checkpoints", "models", "outputs", "ckpt"]  # 备用目录
+        primary_output_dir = f"checkpoints/training_{which}"  # 主要输出目录
+        fallback_dirs = [
+            "checkpoints/training_llm",
+            "checkpoints/training_flow", 
+            "checkpoints/training",
+            "checkpoints", 
+            "models", 
+            "outputs", 
+            "ckpt"
+        ]  # 备用目录
         
         models = []
         processed_folders = set()  # 避免重复处理相同的文件夹
@@ -1072,7 +1084,7 @@ def create_training_tab():
                     )
                     output_dir = gr.Textbox(
                         label="输出目录",
-                        value="checkpoints/training",
+                        value="checkpoints/training_llm",
                         placeholder="训练输出保存目录"
                     )
                 
@@ -1171,8 +1183,8 @@ def create_training_tab():
         gr.Markdown("### 模型管理")
         with gr.Row():
             with gr.Column(scale=2):
-                # 仅显示路径一级
-                _df_paths = get_model_list()[["路径"]]
+                # 仅显示路径一级（按模型类型显示，初始为 llm）
+                _df_paths = get_model_list("llm")[ ["路径"] ]
                 model_list = gr.Dataframe(
                     value=_df_paths,
                     headers=["路径"],
@@ -1299,16 +1311,23 @@ def create_training_tab():
             outputs=training_plot
         )
         
-        # 刷新模型列表
+        # 刷新模型列表（按模型类型）
+        def _list_model_paths(which: str):
+            try:
+                return get_model_list(which)[["路径"]]
+            except Exception:
+                return get_model_list(which)
+
         refresh_models_btn.click(
-            fn=get_model_list,
+            fn=_list_model_paths,
+            inputs=model_type,
             outputs=model_list
         )
         
-        # 模型表格选择事件
-        def on_model_select(evt: gr.SelectData):
+        # 模型表格选择事件（按模型类型）
+        def on_model_select(evt: gr.SelectData, which: str):
             if evt.index is not None and evt.index[0] >= 0:
-                model_data = get_model_list()
+                model_data = get_model_list(which)
                 if len(model_data) > evt.index[0]:
                     selected_path = model_data.iloc[evt.index[0]]["路径"]
                     return f"{selected_path}"
@@ -1316,6 +1335,7 @@ def create_training_tab():
         
         model_list.select(
             fn=on_model_select,
+            inputs=model_type,
             outputs=selected_model
         )
         
@@ -1325,9 +1345,14 @@ def create_training_tab():
             outputs=model_status
         )
         
+        # 删除后按当前模型类型刷新列表
+        def _delete_and_refresh(folder_name: str, which: str):
+            status, _ = delete_model(folder_name)
+            return status, _list_model_paths(which)
+
         delete_btn.click(
-            fn=delete_model,
-            inputs=selected_model,
+            fn=_delete_and_refresh,
+            inputs=[selected_model, model_type],
             outputs=[model_status, model_list]
         )
 
@@ -1341,12 +1366,14 @@ def create_training_tab():
         def update_model_constraints(model_type_val):
             batch_update = update_batch_size_constraints(model_type_val)
             precision_updates = update_precision_options(model_type_val)
-            return (batch_update,) + precision_updates
+            out_dir_value = "checkpoints/training_llm" if model_type_val == "llm" else "checkpoints/training_flow"
+            ckpt_value = "jzx-ai-lab/HydraVox/llm.pt" if model_type_val == "llm" else "jzx-ai-lab/HydraVox/flow.pt"
+            return (batch_update,) + precision_updates + (gr.update(value=out_dir_value), gr.update(value=ckpt_value))
         
         model_type.change(
             fn=update_model_constraints,
             inputs=model_type,
-            outputs=[batch_size, precision_choice, precision_info]
+            outputs=[batch_size, precision_choice, precision_info, output_dir, model_checkpoint]
         )
 
         # 刷新设备检测
