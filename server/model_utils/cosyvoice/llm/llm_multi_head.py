@@ -245,7 +245,8 @@ class TransformerLM(torch.nn.Module):
 class Qwen2Encoder(torch.nn.Module):
     def __init__(self, pretrain_path):
         super().__init__()
-        self.model = Qwen2ForCausalLM.from_pretrained(pretrain_path)
+        self.config = Qwen2Config.from_pretrained(pretrain_path)
+        self.model = Qwen2ForCausalLM(self.config)
 
     def forward(self, xs: torch.Tensor, xs_lens: torch.Tensor):
         T = xs.size(1)
