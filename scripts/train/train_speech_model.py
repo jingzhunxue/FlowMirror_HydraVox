@@ -46,7 +46,7 @@ import torch
 import torchaudio
 from datasets import load_from_disk, concatenate_datasets, Dataset, Audio
 from hyperpyyaml import load_hyperpyyaml
-from torch.nn.utils.rnn import pad_sequence
+from torch.nn.utils.rnn import pad_sequence, unpad_sequence
 from transformers import (
     Trainer,
     TrainingArguments,
@@ -369,6 +369,7 @@ def main():
             save_total_limit=args.save_total_limit,  # 只保留最近3个checkpoint
             prediction_loss_only=False,  # 修改为False以输出eval loss
             label_names=["speech_token"], # 指定label name
+            save_safetensors=False,  # 关闭safetensors，避免共享权重保存报错
         )
 
         trainer = Trainer(

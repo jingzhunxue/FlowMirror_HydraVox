@@ -2,16 +2,18 @@ import os, gradio as gr
 import json
 import time
 import re
+import subprocess, sys, signal
 from typing import Dict, Any, Optional, List, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import torch
 from pathlib import Path
 import threading
 import logging
 
-# 导入API客户端
-from user_interface.utils.api_client import api_client
+# 训练脚本路径工具
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -32,21 +34,49 @@ class TrainingState:
         self.last_log_update: float = 0
         self.log_cache_duration: float = 2.0  # 日志缓存2秒
         self.last_displayed_log_count: int = 0  # 上次显示的日志行数
+        # 子进程与日志
+        self.proc: Optional[subprocess.Popen] = None
+        self.proc_pid: Optional[int] = None
+        self.reader_thread: Optional[threading.Thread] = None
+        self.log_lines: List[str] = []
+        self.start_time: float = 0.0
+        self.end_time: Optional[float] = None
+        self.exit_code: Optional[int] = None
+        self.output_dir: Optional[str] = None
+        self.cmdline: List[str] = []
         
 training_state = TrainingState()
 
-def load_training_config():
-    """加载训练配置"""
-    default_config = {
-        "batch_size": 32,
-        "learning_rate": 0.001,
-        "epochs": 100,
-        "save_interval": 10,
-        "validation_split": 0.1,
-        "optimizer": "Adam",
-        "scheduler": "CosineAnnealingLR"
-    }
-    return default_config
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _train_script_path() -> Path:
+    # 训练脚本（使用 HF Trainer 实现）
+    return _project_root() / "scripts/train/train_speech_model.py"
+
+
+def _auto_detect_device_and_processes() -> Tuple[str, int, str]:
+    """返回 (device, num_processes, detail_msg). device 为 'GPU' 或 'CPU'。"""
+    device = "CPU"
+    num_proc = 1
+    detail = "CUDA 不可用，默认 CPU x1"
+    try:
+        import torch  # type: ignore
+        if torch.cuda.is_available():
+            n = torch.cuda.device_count() or 1
+            device = "GPU"
+            num_proc = n
+            detail = f"CUDA 可用，GPU 数: {n}"
+    except Exception:
+        pass
+    return device, num_proc, detail
+
+
+def _refresh_device_triplet():
+    d, p, detail = _auto_detect_device_and_processes()
+    return detail, p, ("GPU" if d == "GPU" else "CPU")
+
 
 def save_training_config(config_dict: Dict[str, Any]):
     """保存训练配置"""
@@ -70,9 +100,12 @@ def start_training(
     scheduler: str,
     use_auto_split: bool,
     enable_lora: bool,
-    precision_choice: str
+    precision_choice: str,
+    device_choice: str,
+    gpu_processes: float,
+    gpu_ids: str
 ):
-    """启动训练任务"""
+    """以子进程方式启动训练脚本，并在当前 Gradio 中管理生命周期。"""
     global training_state
     
     if training_state.is_training:
@@ -81,186 +114,255 @@ def start_training(
     if not dataset_path:
         return "❌ 请先选择数据集文件"
     
+    # 精度选项
+    use_fp16 = (precision_choice == "fp16")
+    use_bf16 = (precision_choice == "bf16")
+
     try:
-        # 根据精度选择设置参数，确保只有一个为true
-        use_fp16 = (precision_choice == "fp16")
-        use_bf16 = (precision_choice == "bf16")
-        
-        # 构建训练配置
-        config = {
-            "model_type": model_type,
-            "model_checkpoint": model_checkpoint,
-            "tokenizer_path": tokenizer_path,
-            "train_data": dataset_path,
-            "output_dir": output_dir,
-            "batch_size": batch_size,
-            "learning_rate": learning_rate,
-            "epochs": epochs,
-            "save_steps": save_interval * 100,  # 转换为步数
-            "auto_val_split": use_auto_split,
-            "val_split_ratio": validation_split,
-            "use_fp16": use_fp16,
-            "use_bf16": use_bf16,
-            "enable_lora": enable_lora
-        }
-        
-        # 记录详细的参数信息用于调试
-        logger.info("=" * 50)
-        logger.info("🚀 准备启动训练任务")
-        logger.info(f"精度选择: {precision_choice}")
-        logger.info(f"use_fp16: {use_fp16}")
-        logger.info(f"use_bf16: {use_bf16}")
-        logger.info("训练配置参数:")
-        for key, value in config.items():
-            logger.info(f"  {key}: {value}")
-        logger.info("=" * 50)
-        
-        # 如果不使用自动分割，需要手动指定验证集路径
+        script_path = _train_script_path()
+        if not script_path.exists():
+            return f"❌ 找不到训练脚本: {script_path}"
+
+        # 保存状态
+        training_state.output_dir = output_dir
+        training_state.log_lines = []
+        training_state.cached_log_text = "正在启动训练..."
+        training_state.last_log_update = 0
+        training_state.last_displayed_log_count = 0
+        training_state.last_log_size = 0
+        training_state.exit_code = None
+        training_state.end_time = None
+        if training_state.cached_plot_path and os.path.exists(training_state.cached_plot_path):
+            try:
+                os.remove(training_state.cached_plot_path)
+            except Exception:
+                pass
+        training_state.cached_plot_path = None
+
+        # 自动验证集路径逻辑
+        cv_data_arg = None
         if not use_auto_split:
-            # 假设验证集在训练集同一目录下的val子目录
             train_path = Path(dataset_path)
             val_path = train_path.parent / "val" / train_path.name
             if val_path.exists():
-                config["cv_data"] = str(val_path)
+                cv_data_arg = str(val_path)
             else:
-                config["auto_val_split"] = True  # 如果没有验证集，自动启用分割
-        
-        # 调用API启动训练
-        result = api_client.start_training(config)
-        
-        if result.get("success"):
-            training_state.current_training_id = result["data"]["training_id"]
-            training_state.is_training = True
-            
-            # 重置日志和图表缓存
-            training_state.cached_log_text = "正在启动训练..."
-            training_state.last_log_update = 0
-            training_state.last_displayed_log_count = 0
-            training_state.last_log_size = 0
-            training_state.last_plot_update = 0
-            if training_state.cached_plot_path and os.path.exists(training_state.cached_plot_path):
-                try:
-                    os.remove(training_state.cached_plot_path)
-                except:
-                    pass
-            training_state.cached_plot_path = None
-            
-            return f"✅ 训练任务已启动\n训练ID: {training_state.current_training_id}\nPID: {result['data']['pid']}\n状态: {result['data']['status']}"
+                # 若未找到指定验证集，则自动切换为自动划分
+                use_auto_split = True
+
+        # 训练脚本参数
+        script_args: List[str] = [
+            "--model", model_type,
+            "--model_ckpt", model_checkpoint,
+            "--tokenizer_path", tokenizer_path,
+            "--train_data", dataset_path,
+            "--output_dir", output_dir,
+            "--per_device_train_batch_size", str(int(batch_size)),
+            "--learning_rate", str(float(learning_rate)),
+            "--num_train_epochs", str(int(epochs)),
+            "--save_steps", str(int(save_interval) * 100),
+            "--val_split_ratio", str(float(validation_split)),
+        ]
+        if use_auto_split:
+            script_args.append("--auto_val_split")
         else:
-            return f"❌ 训练启动失败: {result.get('message', '未知错误')}"
-            
+            if cv_data_arg:
+                script_args.extend(["--cv_data", cv_data_arg])
+        if enable_lora:
+            script_args.append("--enable_lora")
+        if use_fp16:
+            script_args.append("--fp16")
+        if use_bf16:
+            script_args.append("--bf16")
+
+        # 设备选择与进程数
+        dev_detect, max_gpus, _detail = _auto_detect_device_and_processes()
+        chosen = device_choice
+        if chosen == "自动":
+            chosen = "GPU" if dev_detect == "GPU" else "CPU"
+        try:
+            nproc = max(1, int(gpu_processes))
+        except Exception:
+            nproc = 1
+
+        # mixed_precision for accelerate
+        mixed_precision = "no"
+        if use_bf16:
+            mixed_precision = "bf16"
+        elif use_fp16:
+            mixed_precision = "fp16"
+
+        # 环境变量（限制可见 GPU）
+        env = os.environ.copy()
+        cuda_ids = (gpu_ids or "").strip()
+        if chosen == "GPU":
+            if cuda_ids:
+                env["CUDA_VISIBLE_DEVICES"] = cuda_ids
+            else:
+                # 默认选择从 0 开始的前 nproc 张卡
+                if max_gpus > 0:
+                    take = max(1, min(nproc, max_gpus))
+                    env["CUDA_VISIBLE_DEVICES"] = ",".join(str(i) for i in range(take))
+
+        # 组装 accelerate 启动命令（统一使用 accelerate）
+        cmd: List[str] = [
+            sys.executable,
+            "-m", "accelerate.commands.launch",
+            "--num_machines", "1",
+            "--num_processes", str(nproc if chosen == "GPU" else 1),
+            "--mixed_precision", mixed_precision,
+            str(script_path),
+            *script_args,
+        ]
+
+        training_state.cmdline = cmd
+
+        # 启动子进程（独立进程组，便于停止）
+        training_state.start_time = time.time()
+        try:
+            training_state.proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                preexec_fn=os.setsid if hasattr(os, "setsid") else None,
+                env=env,
+            )
+        except Exception as e:
+            return f"❌ 启动失败: {e}"
+
+        training_state.is_training = True
+        training_state.proc_pid = training_state.proc.pid if training_state.proc else None
+        training_state.current_training_id = f"local-{int(training_state.start_time)}"
+
+        # 启动日志读取线程
+        def _reader():
+            try:
+                assert training_state.proc is not None
+                assert training_state.proc.stdout is not None
+                for raw in training_state.proc.stdout:
+                    line = raw.rstrip()
+                    if not line:
+                        continue
+                    training_state.log_lines.append(line)
+                    if len(training_state.log_lines) > 2000:
+                        training_state.log_lines = training_state.log_lines[-2000:]
+                    # 轻量更新缓存文本标记更新时间
+                    training_state.cached_log_text = "\n".join(training_state.log_lines[-200:])
+                    training_state.last_log_update = time.time()
+            except Exception as re:
+                logger.warning(f"日志读取线程异常: {re}")
+            finally:
+                try:
+                    if training_state.proc is not None:
+                        ret = training_state.proc.wait()
+                        training_state.exit_code = ret
+                except Exception:
+                    pass
+                training_state.is_training = False
+                training_state.end_time = time.time()
+
+        training_state.reader_thread = threading.Thread(target=_reader, daemon=True)
+        training_state.reader_thread.start()
+
+        return f"✅ 训练任务已启动\n训练ID: {training_state.current_training_id}\nPID: {training_state.proc_pid}\n脚本: {script_path.name}"
+
     except Exception as e:
         logger.error(f"启动训练失败: {e}")
         return f"❌ 训练启动失败: {str(e)}"
 
 def stop_training():
-    """停止训练"""
+    """停止训练（终止子进程）。"""
     global training_state
     
-    if not training_state.is_training or not training_state.current_training_id:
+    if not training_state.is_training or training_state.proc is None:
         return "⚠️ 当前没有运行中的训练任务"
     
     try:
-        result = api_client.stop_training(training_state.current_training_id)
-        
-        if result.get("success"):
-            training_state.is_training = False
-            training_state.current_training_id = None
-            return f"🛑 训练已停止: {result['message']}"
-        else:
-            return f"❌ 停止训练失败: {result.get('message', '未知错误')}"
-            
+        proc = training_state.proc
+        # 先尝试优雅终止
+        try:
+            if proc.poll() is None:
+                if hasattr(os, "getpgid"):
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                else:
+                    proc.terminate()
+        except Exception:
+            pass
+        # 等待最多5秒
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                if hasattr(os, "getpgid"):
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                else:
+                    proc.kill()
+            except Exception:
+                pass
+        training_state.is_training = False
+        training_state.current_training_id = None
+        training_state.end_time = time.time()
+        code = proc.returncode
+        training_state.exit_code = code
+        return f"🛑 训练已停止 (退出码: {code})"
     except Exception as e:
         logger.error(f"停止训练失败: {e}")
         return f"❌ 停止训练失败: {str(e)}"
 
 def get_training_logs():
-    """获取训练日志，带稳定的缓存机制"""
+    """获取本地子进程的训练日志（带缓存）。"""
     global training_state
     
     current_time = time.time()
     
-    if not training_state.current_training_id:
+    if not training_state.current_training_id and not training_state.is_training:
         training_state.cached_log_text = "暂无训练任务"
         return training_state.cached_log_text
     
-    # 检查缓存是否仍然有效
+    # 缓存控制
     time_since_last_update = current_time - training_state.last_log_update
     if time_since_last_update < training_state.log_cache_duration:
         return training_state.cached_log_text
-    
+
     try:
-        result = api_client.get_training_status(training_state.current_training_id)
-        
-        if result.get("success"):
-            data = result["data"]
-            status = data["status"]
-            logs = data.get("logs", [])
-            
-            # 更新训练状态
-            if status in ["completed", "failed", "stopped"]:
-                training_state.is_training = False
-            
-            # 检查是否有新的日志内容
-            current_log_count = len(logs)
-            if current_log_count == training_state.last_displayed_log_count and time_since_last_update < 5.0:
-                # 如果日志行数没变且距离上次更新不到5秒，返回缓存
-                return training_state.cached_log_text
-            
-            # 更新日志计数
-            training_state.last_displayed_log_count = current_log_count
-            
-            # 构建稳定的日志头部信息
-            header_info = []
-            header_info.append(f"训练状态: {status}")
+        status = "running" if training_state.is_training else ("stopped" if training_state.exit_code is None else ("completed" if training_state.exit_code == 0 else "failed"))
+        logs = training_state.log_lines
+        training_state.last_displayed_log_count = len(logs)
+
+        header_info: List[str] = []
+        header_info.append(f"训练状态: {status}")
+        if training_state.current_training_id:
             header_info.append(f"训练ID: {training_state.current_training_id}")
-            
-            if data.get("start_time"):
-                start_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(data["start_time"]))
-                header_info.append(f"开始时间: {start_time}")
-            
-            if data.get("end_time"):
-                end_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(data["end_time"]))
-                header_info.append(f"结束时间: {end_time}")
-            
-            # 添加进度信息
-            if logs:
-                header_info.append(f"日志行数: {len(logs)}")
-            
-            header_info.append("=" * 50)
-            header_text = "\n".join(header_info) + "\n"
-            
-            # 智能选择显示的日志行数
-            if len(logs) <= 100:
-                # 少于100行，全部显示
-                displayed_logs = logs
-            else:
-                # 超过100行，显示最后80行，但保留完整的训练进度信息
-                displayed_logs = logs[-80:]
-            
-            # 确保显示的日志以完整行结束
-            log_content = "".join(displayed_logs)
-            
-            # 如果有截断，添加提示
-            if len(logs) > len(displayed_logs):
-                truncate_info = f"\n... (省略了前{len(logs) - len(displayed_logs)}行日志) ...\n\n"
-                log_content = truncate_info + log_content
-            
-            # 构建最终的日志文本
-            training_state.cached_log_text = header_text + log_content
-            training_state.last_log_update = current_time
-            
-            return training_state.cached_log_text
+        if training_state.start_time:
+            st = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(training_state.start_time))
+            header_info.append(f"开始时间: {st}")
+        if training_state.end_time:
+            et = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(training_state.end_time))
+            header_info.append(f"结束时间: {et}")
+        if logs:
+            header_info.append(f"日志行数: {len(logs)}")
+        header_info.append("=" * 50)
+        header_text = "\n".join(header_info) + "\n"
+
+        # 显示最近 200 行
+        if len(logs) <= 200:
+            displayed = logs
         else:
-            error_msg = f"获取日志失败: {result.get('message', '未知错误')}"
-            training_state.cached_log_text = error_msg
-            return error_msg
-            
+            displayed = logs[-200:]
+        log_content = "\n".join(displayed)
+        if len(logs) > len(displayed):
+            log_content = f"... (省略了前{len(logs) - len(displayed)}行日志) ...\n\n" + log_content
+
+        training_state.cached_log_text = header_text + log_content
+        training_state.last_log_update = current_time
+        return training_state.cached_log_text
     except Exception as e:
         logger.error(f"获取训练日志失败: {e}")
-        error_msg = f"获取日志失败: {str(e)}"
-        training_state.cached_log_text = error_msg
-        return error_msg
+        training_state.cached_log_text = f"获取日志失败: {str(e)}"
+        return training_state.cached_log_text
 
 def parse_training_logs(log_file_path: str) -> Dict[str, List[float]]:
     """解析训练日志，提取训练指标"""
@@ -338,147 +440,182 @@ def parse_training_logs(log_file_path: str) -> Dict[str, List[float]]:
     
     return metrics
 
+
+def _parse_metrics_from_lines(lines: List[str]) -> Dict[str, List[float]]:
+    """从内存中的日志行解析指标（用于回退绘图）。"""
+    metrics: Dict[str, List[float]] = {
+        'steps': [],
+        'loss': [],
+        'grad_norm': [],
+        'learning_rate': [],
+        'epoch': []
+    }
+    try:
+        step = 0
+        for line in lines:
+            s = line.strip()
+            if not s or not s.startswith('{') or 'loss' not in s:
+                continue
+            try:
+                import ast
+                d = ast.literal_eval(s)
+                if isinstance(d, dict) and 'loss' in d:
+                    step += 1
+                    metrics['steps'].append(step)
+                    metrics['loss'].append(float(d['loss']))
+                    metrics['grad_norm'].append(float(d.get('grad_norm', 0)))
+                    metrics['learning_rate'].append(float(d.get('learning_rate', 0)))
+                    metrics['epoch'].append(float(d.get('epoch', 0)))
+                    continue
+            except Exception:
+                pass
+            # 回退到正则
+            loss_match = re.search(r"'loss':\s*([\d\.-eE]+)", s)
+            if loss_match:
+                step += 1
+                metrics['steps'].append(step)
+                metrics['loss'].append(float(loss_match.group(1)))
+                grad_norm_match = re.search(r"'grad_norm':\s*([\d\.-eE]+)", s)
+                lr_match = re.search(r"'learning_rate':\s*([\d\.-eE]+)", s)
+                epoch_match = re.search(r"'epoch':\s*([\d\.-eE]+)", s)
+                metrics['grad_norm'].append(float(grad_norm_match.group(1)) if grad_norm_match else (metrics['grad_norm'][-1] if metrics['grad_norm'] else 0))
+                metrics['learning_rate'].append(float(lr_match.group(1)) if lr_match else (metrics['learning_rate'][-1] if metrics['learning_rate'] else 0))
+                metrics['epoch'].append(float(epoch_match.group(1)) if epoch_match else (metrics['epoch'][-1] if metrics['epoch'] else 0))
+    except Exception:
+        pass
+    return metrics
+
 def generate_training_plot(force_update: bool = False):
-    """生成训练曲线图，带缓存和智能刷新"""
+    """生成训练曲线图，优先解析 Trainer 的 trainer_state.json。"""
     global training_state
     
     current_time = time.time()
     
-    # 检查是否需要更新（缓存机制）
+    # 缓存控制
     if not force_update and training_state.cached_plot_path and os.path.exists(training_state.cached_plot_path):
         time_since_last_update = current_time - training_state.last_plot_update
         if time_since_last_update < training_state.plot_cache_duration:
             logger.debug(f"使用缓存的训练图表，距离上次更新 {time_since_last_update:.1f} 秒")
             return training_state.cached_plot_path
-    
-    if not training_state.current_training_id:
-        # 如果没有当前训练，生成示例图表
+
+    # 没有任务时返回示例
+    if not training_state.output_dir:
         return _generate_sample_plot()
-    
+
     try:
-        # 获取当前训练的日志文件路径
-        result = api_client.get_training_status(training_state.current_training_id)
-        
-        if not result.get("success"):
-            logger.warning("无法获取训练状态，使用示例图表")
+        steps: List[int] = []
+        loss: List[float] = []
+        eval_loss: List[float] = []
+        learning_rate: List[float] = []
+        epoch: List[float] = []
+
+        # 优先解析 trainer_state.json
+        state_file = os.path.join(training_state.output_dir, "trainer_state.json")
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, "r", encoding="utf-8") as f:
+                    st = json.load(f)
+                logs = st.get("log_history", []) or []
+                for entry in logs:
+                    if not isinstance(entry, dict):
+                        continue
+                    s = entry.get("step")
+                    if s is None:
+                        continue
+                    steps.append(int(s))
+                    if "loss" in entry:
+                        try:
+                            loss.append(float(entry["loss"]))
+                        except Exception:
+                            pass
+                    if "eval_loss" in entry:
+                        try:
+                            eval_loss.append(float(entry["eval_loss"]))
+                        except Exception:
+                            pass
+                    if "learning_rate" in entry:
+                        try:
+                            learning_rate.append(float(entry["learning_rate"]))
+                        except Exception:
+                            pass
+                    if "epoch" in entry:
+                        try:
+                            epoch.append(float(entry["epoch"]))
+                        except Exception:
+                            pass
+            except Exception:
+                # 读取失败则退回日志解析
+                steps = []
+
+        # 如果 trainer_state.json 为空或不存在，回退到内存日志解析
+        if not steps and training_state.log_lines:
+            m = _parse_metrics_from_lines(training_state.log_lines)
+            steps = m['steps']
+            loss = m['loss']
+            learning_rate = m['learning_rate']
+            epoch = m['epoch']
+            # grad_norm 不显示（保留第二子图占位）
+
+        # 如果仍然没有可绘制数据，返回示例或保持现状
+        if not steps and not loss and not eval_loss and not learning_rate and not epoch:
             return _generate_sample_plot()
-        
-        training_data = result["data"]
-        log_file = training_data.get("log_file")
-        
-        if not log_file:
-            logger.debug("训练任务暂无日志文件路径")
-            return None  # 返回None表示暂无数据
-        
-        if not os.path.exists(log_file):
-            logger.debug(f"日志文件尚不存在: {log_file}，可能训练刚开始")
-            return None  # 返回None表示暂无数据
-        
-        # 检查日志文件是否有更新（通过文件大小判断）
-        current_log_size = os.path.getsize(log_file)
-        if not force_update and current_log_size == training_state.last_log_size:
-            # 日志文件没有更新，且缓存未过期
-            if training_state.cached_plot_path and os.path.exists(training_state.cached_plot_path):
-                time_since_last_update = current_time - training_state.last_plot_update
-                if time_since_last_update < training_state.plot_update_interval:
-                    logger.debug("日志文件无更新，使用缓存图表")
-                    return training_state.cached_plot_path
-        
-        # 更新日志文件大小记录
-        training_state.last_log_size = current_log_size
-        
-        # 解析日志获取训练数据
-        metrics = parse_training_logs(log_file)
-        
-        if not metrics['loss']:
-            logger.warning("日志中没有找到训练数据，使用示例图表")
-            return _generate_sample_plot()
-        
-        logger.info(f"生成训练图表，包含 {len(metrics['loss'])} 个数据点")
-        
-        # 创建多子图
+
+        # 统一长度（简单对齐，缺失用 None 跳过绘图）
+        import matplotlib.pyplot as plt
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
-        fig.suptitle(f'训练进度 - {training_state.current_training_id}', fontsize=16)
-        
-        steps = metrics['steps']
-        
-        # 子图1: Loss曲线
-        ax1.plot(steps, metrics['loss'], color='blue', linewidth=2, marker='o', markersize=3, alpha=0.7)
-        ax1.set_title('训练损失 (Loss)', fontsize=12)
+        title_id = training_state.current_training_id or "local"
+        fig.suptitle(f'训练进度 - {title_id}', fontsize=16)
+
+        # Loss / Eval Loss
+        if loss:
+            ax1.plot(steps[:len(loss)], loss, color='blue', linewidth=2, marker='o', markersize=3, alpha=0.7, label='train loss')
+        if eval_loss:
+            ax1.plot(steps[:len(eval_loss)], eval_loss, color='purple', linewidth=2, marker='x', markersize=3, alpha=0.7, label='eval loss')
+        ax1.set_title('损失 (Loss)', fontsize=12)
         ax1.set_xlabel('步数 (Steps)')
         ax1.set_ylabel('Loss')
         ax1.grid(True, alpha=0.3)
-        # 添加最新值标注
-        if metrics['loss']:
-            latest_loss = metrics['loss'][-1]
-            ax1.annotate(f'最新: {latest_loss:.4f}', 
-                        xy=(steps[-1], latest_loss), xytext=(0.7, 0.9),
-                        textcoords='axes fraction', fontsize=10,
-                        bbox=dict(boxstyle='round,pad=0.3', facecolor='lightblue', alpha=0.7))
-        
-        # 子图2: 梯度范数
-        if metrics['grad_norm']:
-            ax2.plot(steps, metrics['grad_norm'], color='orange', linewidth=2, marker='s', markersize=3, alpha=0.7)
-            ax2.set_title('梯度范数 (Gradient Norm)', fontsize=12)
-            ax2.set_xlabel('步数 (Steps)')
-            ax2.set_ylabel('Grad Norm')
-            ax2.grid(True, alpha=0.3)
-            # 添加最新值标注
-            latest_grad_norm = metrics['grad_norm'][-1]
-            ax2.annotate(f'最新: {latest_grad_norm:.4f}', 
-                        xy=(steps[-1], latest_grad_norm), xytext=(0.7, 0.9),
-                        textcoords='axes fraction', fontsize=10,
-                        bbox=dict(boxstyle='round,pad=0.3', facecolor='lightsalmon', alpha=0.7))
-        
-        # 子图3: 学习率
-        if metrics['learning_rate']:
-            ax3.plot(steps, metrics['learning_rate'], color='green', linewidth=2, marker='^', markersize=3, alpha=0.7)
-            ax3.set_title('学习率 (Learning Rate)', fontsize=12)
-            ax3.set_xlabel('步数 (Steps)')
-            ax3.set_ylabel('Learning Rate')
-            ax3.grid(True, alpha=0.3)
-            ax3.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
-            # 添加最新值标注
-            latest_lr = metrics['learning_rate'][-1]
-            ax3.annotate(f'最新: {latest_lr:.2e}', 
-                        xy=(steps[-1], latest_lr), xytext=(0.7, 0.9),
-                        textcoords='axes fraction', fontsize=10,
-                        bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgreen', alpha=0.7))
-        
-        # 子图4: Epoch进度
-        if metrics['epoch']:
-            ax4.plot(steps, metrics['epoch'], color='red', linewidth=2, marker='d', markersize=3, alpha=0.7)
-            ax4.set_title('训练轮数 (Epoch)', fontsize=12)
-            ax4.set_xlabel('步数 (Steps)')
-            ax4.set_ylabel('Epoch')
-            ax4.grid(True, alpha=0.3)
-            # 添加最新值标注
-            latest_epoch = metrics['epoch'][-1]
-            ax4.annotate(f'最新: {latest_epoch:.3f}', 
-                        xy=(steps[-1], latest_epoch), xytext=(0.7, 0.9),
-                        textcoords='axes fraction', fontsize=10,
-                        bbox=dict(boxstyle='round,pad=0.3', facecolor='lightcoral', alpha=0.7))
-        
+        if loss or eval_loss:
+            ax1.legend()
+
+        # Grad Norm（Trainer 默认无，留空占位）
+        ax2.set_title('梯度范数 (Gradient Norm)', fontsize=12)
+        ax2.set_xlabel('步数 (Steps)')
+        ax2.set_ylabel('Grad Norm')
+        ax2.grid(True, alpha=0.3)
+        ax2.text(0.5, 0.5, '暂无数据', transform=ax2.transAxes, ha='center', va='center', alpha=0.5)
+
+        # Learning Rate
+        if learning_rate:
+            ax3.plot(steps[:len(learning_rate)], learning_rate, color='green', linewidth=2, marker='^', markersize=3, alpha=0.7)
+        ax3.set_title('学习率 (Learning Rate)', fontsize=12)
+        ax3.set_xlabel('步数 (Steps)')
+        ax3.set_ylabel('Learning Rate')
+        ax3.grid(True, alpha=0.3)
+        ax3.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
+
+        # Epoch
+        if epoch:
+            ax4.plot(steps[:len(epoch)], epoch, color='red', linewidth=2, marker='d', markersize=3, alpha=0.7)
+        ax4.set_title('训练轮数 (Epoch)', fontsize=12)
+        ax4.set_xlabel('步数 (Steps)')
+        ax4.set_ylabel('Epoch')
+        ax4.grid(True, alpha=0.3)
+
         plt.tight_layout()
-        
-        # 使用时间戳确保缓存文件唯一性
         plot_path = f"/tmp/training_plot_{int(current_time)}.png"
         plt.savefig(plot_path, dpi=150, bbox_inches='tight')
         plt.close()
-        
-        # 删除旧的缓存文件
+
+        # 替换缓存
         if training_state.cached_plot_path and os.path.exists(training_state.cached_plot_path):
             try:
                 os.remove(training_state.cached_plot_path)
-            except:
+            except Exception:
                 pass
-        
-        # 更新缓存
         training_state.cached_plot_path = plot_path
         training_state.last_plot_update = current_time
-        
         return plot_path
-    
     except Exception as e:
         logger.error(f"生成训练图表失败: {e}")
         return _generate_sample_plot()
@@ -644,26 +781,29 @@ def delete_model(folder_name: str):
     try:
         import shutil
         
-        # 从文件夹名称中提取路径信息
+        # 直接将输入视为路径；兼容旧格式 "name (path)"
+        folder_path: Optional[Path] = None
         if " (" in folder_name and ")" in folder_name:
-            # 格式: "folder_name (path/to/folder)"
             path_part = folder_name.split(" (")[1].rstrip(")")
             folder_path = Path(path_part)
         else:
-            # 如果格式不对，尝试在各输出目录中查找
-            output_dirs = [
-                "checkpoints/training", 
-                "checkpoints", 
-                "models", 
-                "outputs",
-                "ckpt"
-            ]
-            folder_path = None
-            for output_dir in output_dirs:
-                potential_path = Path(output_dir) / folder_name
-                if potential_path.exists() and potential_path.is_dir():
-                    folder_path = potential_path
-                    break
+            p = Path(folder_name)
+            if p.exists() and p.is_dir():
+                folder_path = p
+            else:
+                # 回退在各输出目录中查找同名子目录
+                output_dirs = [
+                    "checkpoints/training", 
+                    "checkpoints", 
+                    "models", 
+                    "outputs",
+                    "ckpt"
+                ]
+                for output_dir in output_dirs:
+                    potential_path = Path(output_dir) / folder_name
+                    if potential_path.exists() and potential_path.is_dir():
+                        folder_path = potential_path
+                        break
         
         if folder_path and folder_path.exists() and folder_path.is_dir():
             # 确认不是重要的系统文件夹
@@ -680,6 +820,47 @@ def delete_model(folder_name: str):
     except Exception as e:
         logger.error(f"删除文件夹失败: {e}")
         return f"❌ 删除失败: {str(e)}", get_model_list()
+
+
+def convert_checkpoint_to_pt(folder_path_str: str):
+    """将路径下的 pytorch_model.bin 转换为 model.pt（bf16）。"""
+    if not folder_path_str:
+        return "⚠️ 请先在表格中选择一个路径"
+    try:
+        base = Path(folder_path_str)
+        if not base.exists() or not base.is_dir():
+            return f"❌ 路径无效: {base}"
+
+        bin_path = base / "pytorch_model.bin"
+        if not bin_path.exists():
+            found = list(base.rglob("pytorch_model.bin"))
+            if found:
+                bin_path = found[0]
+            else:
+                return f"❌ 未找到 pytorch_model.bin 于: {base}"
+
+        # 分片索引不支持
+        if (base / "pytorch_model.bin.index.json").exists():
+            return "❌ 暂不支持分片权重（.bin.index.json），请先合并再转换"
+
+        state = torch.load(str(bin_path), map_location="cpu")
+        if not isinstance(state, dict):
+            return "❌ 权重文件格式不符合预期（非state_dict）"
+
+        def to_bf16_tensor(val):
+            if isinstance(val, torch.Tensor) and val.is_floating_point():
+                try:
+                    return val.to(torch.bfloat16)
+                except Exception:
+                    return val
+            return val
+
+        converted = {k: to_bf16_tensor(v) for k, v in state.items()}
+        out_path = base / "model.pt"
+        torch.save(converted, str(out_path))
+        return f"✅ 转换完成: {bin_path.name} → {out_path} (bf16)"
+    except Exception as e:
+        return f"❌ 转换失败: {e}"
 
 def update_batch_size_constraints(model_type: str):
     """根据模型类型更新batch_size限制"""
@@ -724,6 +905,8 @@ def create_training_tab():
     """创建训练tab界面"""
     with gr.Tab("🚀 模型训练"):
         gr.Markdown("### TTS 模型训练")
+        # 设备默认值
+        device_default, proc_default, device_detail = _auto_detect_device_and_processes()
         
         with gr.Row():
             with gr.Column(scale=1):
@@ -750,7 +933,7 @@ def create_training_tab():
                     )
                     tokenizer_path = gr.Textbox(
                         label="分词器路径",
-                        value="jzx-ai-lab/HydraVox/speech_tokenizer",
+                        value="jzx-ai-lab/HydraVox/CosyVoice-BlankEN",
                         placeholder="分词器模型路径"
                     )
                     output_dir = gr.Textbox(
@@ -765,11 +948,11 @@ def create_training_tab():
                     batch_size = gr.Slider(1, 32, value=1, step=1, label="批次大小", maximum=1, interactive=False)
                     batch_size_info = gr.Markdown("💡 **注意**: LLM模型训练时batch_size必须为1，Flow模型可以使用更大的batch_size", visible=True)
                     learning_rate = gr.Number(value=1e-4, label="学习率", minimum=1e-6, maximum=1e-2)
-                    epochs = gr.Slider(1, 100, value=10, step=1, label="训练轮数")
-                    save_interval = gr.Slider(1, 50, value=20, step=1, label="保存间隔(轮数)")
+                    epochs = gr.Slider(1, 100, value=5, step=1, label="训练轮数")
+                    save_interval = gr.Slider(100, 10000, value=1000, step=100, label="保存间隔(步数)")
                 
                 with gr.Group():
-                    validation_split = gr.Slider(0.0, 0.3, value=0.05, step=0.01, label="验证集比例")
+                    validation_split = gr.Slider(0.01, 0.3, value=0.05, step=0.01, label="验证集比例")
                     use_auto_split = gr.Checkbox(label="自动划分验证集", value=True)
                     
                 # 高级选项
@@ -785,9 +968,24 @@ def create_training_tab():
                         label="精度设置"
                     )
                     precision_info = gr.Markdown("💡 **LLM模型**: 推荐使用BF16精度以获得更好的数值稳定性", visible=True)
-                
+
+                # 计算资源设置
+                gr.Markdown("#### 5. 计算资源设置")
+                with gr.Group():
+                    with gr.Row():
+                        device_choice = gr.Dropdown(
+                            choices=["自动", "CPU", "GPU"],
+                            value=("GPU" if device_default == "GPU" else "CPU"),
+                            label="💻 计算设备"
+                        )
+                        gpu_processes = gr.Number(value=proc_default, label="🔄 并行进程数 (GPU数)")
+                    with gr.Row():
+                        gpu_ids = gr.Textbox(label="🎯 GPU IDs (可选)", placeholder="例如: 0,1")
+                        detect_btn = gr.Button("🔄 刷新设备检测", variant="secondary")
+                    device_info = gr.Textbox(value=device_detail, label="ℹ️ 设备检测信息", interactive=False)
+
                 # 控制按钮
-                gr.Markdown("#### 5. 训练控制")
+                gr.Markdown("#### 6. 训练控制")
                 start_btn = gr.Button("🚀 开始训练", variant="primary")
                 stop_btn = gr.Button("🛑 停止训练", variant="stop")
                 refresh_log_btn = gr.Button("🔄 刷新日志", variant="secondary")
@@ -829,10 +1027,12 @@ def create_training_tab():
         gr.Markdown("### 模型管理")
         with gr.Row():
             with gr.Column(scale=2):
+                # 仅显示路径一级
+                _df_paths = get_model_list()[["路径"]]
                 model_list = gr.Dataframe(
-                    value=get_model_list(),
-                    headers=["文件夹名称", "路径", "内容", "大小", "时间"],
-                    label="训练输出文件夹",
+                    value=_df_paths,
+                    headers=["路径"],
+                    label="训练输出路径",
                     interactive=False
                 )
                 
@@ -844,32 +1044,16 @@ def create_training_tab():
                     refresh_models_btn = gr.Button("🔄 刷新列表", variant="secondary")
                 
                 with gr.Row():
-                    load_btn = gr.Button("📂 加载文件夹", variant="primary")
-                    delete_btn = gr.Button("🗑️ 删除文件夹", variant="stop")
+                    load_btn = gr.Button("📂 加载路径", variant="primary")
+                    delete_btn = gr.Button("🗑️ 删除路径", variant="stop")
+                with gr.Row():
+                    convert_btn = gr.Button("🔁 转换为 model.pt (bf16)", variant="primary")
                 
                 model_status = gr.Textbox(
                     label="操作状态",
                     interactive=False
                 )
         
-        # 训练配置显示
-        gr.Markdown("### 当前配置")
-        config_display = gr.JSON(
-            value=load_training_config(),
-            label="训练配置"
-        )
-        
-        # 事件绑定
-        def update_config():
-            return {
-                "batch_size": batch_size.value,
-                "learning_rate": learning_rate.value,
-                "epochs": epochs.value,
-                "save_interval": save_interval.value,
-                "validation_split": validation_split.value,
-                "optimizer": optimizer.value,
-                "scheduler": scheduler.value
-            }
         
         # 绑定训练控制事件
         start_btn.click(
@@ -878,7 +1062,8 @@ def create_training_tab():
                 dataset_file, model_type, model_checkpoint, tokenizer_path, output_dir,
                 batch_size, learning_rate, epochs, save_interval, validation_split,
                 gr.State("Adam"), gr.State("CosineAnnealingLR"),  # 暂时固定优化器和调度器
-                use_auto_split, enable_lora, precision_choice
+                use_auto_split, enable_lora, precision_choice,
+                device_choice, gpu_processes, gpu_ids
             ],
             outputs=training_status
         )
@@ -971,12 +1156,10 @@ def create_training_tab():
         # 模型表格选择事件
         def on_model_select(evt: gr.SelectData):
             if evt.index is not None and evt.index[0] >= 0:
-                # 获取选中行的文件夹信息
                 model_data = get_model_list()
                 if len(model_data) > evt.index[0]:
-                    selected_name = model_data.iloc[evt.index[0]]["文件夹名称"]
                     selected_path = model_data.iloc[evt.index[0]]["路径"]
-                    return f"{selected_name} ({selected_path})"
+                    return f"{selected_path}"
             return ""
         
         model_list.select(
@@ -995,6 +1178,12 @@ def create_training_tab():
             inputs=selected_model,
             outputs=[model_status, model_list]
         )
+
+        convert_btn.click(
+            fn=convert_checkpoint_to_pt,
+            inputs=selected_model,
+            outputs=model_status
+        )
         
         # 监听模型类型变化，自动调整batch_size限制和精度选项
         def update_model_constraints(model_type_val):
@@ -1006,5 +1195,12 @@ def create_training_tab():
             fn=update_model_constraints,
             inputs=model_type,
             outputs=[batch_size, batch_size_info, precision_choice, precision_info]
+        )
+
+        # 刷新设备检测
+        detect_btn.click(
+            fn=_refresh_device_triplet,
+            inputs=[],
+            outputs=[device_info, gpu_processes, device_choice]
         )
        
