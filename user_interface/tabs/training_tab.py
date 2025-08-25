@@ -954,7 +954,8 @@ def create_training_tab():
                 # 训练参数配置
                 gr.Markdown("#### 3. 训练参数")
                 with gr.Group():
-                    batch_size = gr.Slider(1, 32, value=2, step=1, label="批次大小", interactive=True)
+                    batch_size = gr.Slider(1, 32, value=4, step=1, label="批次大小", maximum=1, interactive=True)
+                    batch_size_info = gr.Markdown("💡 **注意**: LLM模型训练时batch_size必须为1，Flow模型可以使用更大的batch_size", visible=True)
                     learning_rate = gr.Number(value=1e-4, label="学习率", minimum=1e-6, maximum=1e-2)
                     epochs = gr.Slider(1, 100, value=5, step=1, label="训练轮数")
                     save_interval = gr.Slider(100, 10000, value=1000, step=100, label="保存间隔(步数)")

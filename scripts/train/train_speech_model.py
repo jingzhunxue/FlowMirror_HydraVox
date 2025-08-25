@@ -215,7 +215,7 @@ def main():
     parser.add_argument("--output_dir", type=str, required=True)
 
     # ---- pass-through TrainingArguments ---- #
-    parser.add_argument("--per_device_train_batch_size", type=int, default=4)
+    parser.add_argument("--per_device_train_batch_size", type=int, default=1)
     parser.add_argument("--per_device_eval_batch_size", type=int, default=None)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
     parser.add_argument("--num_train_epochs", type=int, default=10)

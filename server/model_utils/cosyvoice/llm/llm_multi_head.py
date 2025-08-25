@@ -23,7 +23,7 @@ from cosyvoice.utils.common import IGNORE_ID
 from cosyvoice.transformer.label_smoothing_loss import LabelSmoothingLoss
 from cosyvoice.utils.common import th_accuracy
 from cosyvoice.utils.file_utils import logging
-
+from cosyvoice.utils.mask import make_pad_mask
 
 class TransformerLM(torch.nn.Module):
     def __init__(
@@ -245,8 +245,19 @@ class TransformerLM(torch.nn.Module):
 class Qwen2Encoder(torch.nn.Module):
     def __init__(self, pretrain_path):
         super().__init__()
-        self.config = Qwen2Config.from_pretrained(pretrain_path)
-        self.model = Qwen2ForCausalLM(self.config)
+        self.model = Qwen2ForCausalLM.from_pretrained(pretrain_path)
+
+    def forward(self, xs: torch.Tensor, xs_lens: torch.Tensor):
+        T = xs.size(1)
+        masks = ~make_pad_mask(xs_lens, T)
+        masks = masks.to(xs.device).to(xs.dtype)
+        outs = self.model(
+            inputs_embeds=xs,
+            attention_mask=masks,
+            output_hidden_states=True,
+            return_dict=True,
+        )
+        return outs.hidden_states[-1], masks.unsqueeze(1)
 
     def forward_one_step(self, xs, masks, cache=None):
         input_masks = masks[:, -1, :]
@@ -260,17 +271,7 @@ class Qwen2Encoder(torch.nn.Module):
         )
         xs = outs.hidden_states[-1]
         new_cache = outs.past_key_values
-        return xs, None
-
-    def forward(self, xs, masks, cache=None):
-        input_masks = masks[:, -1, :]
-        outs = self.model(
-            inputs_embeds=xs,
-            attention_mask=input_masks,
-            output_hidden_states=True,
-            return_dict=True,
-        )
-        return outs.hidden_states[-1]
+        return xs, new_cache
     
 class Qwen2LM(TransformerLM):
     def __init__(
@@ -340,6 +341,86 @@ class Qwen2LM(TransformerLM):
         lm_input = pad_sequence(lm_input, batch_first=True, padding_value=IGNORE_ID)
         return lm_input, lm_input_len
 
+    @staticmethod
+    def pad_tensor(tensor, padding_tensor):
+        """Pad a list of 2D tensors (Li, D) into a (B, Lmax, D) tensor.
+
+        Args:
+            tensor: list[torch.Tensor], each with shape (Li, D) and same D.
+            padding_tensor: torch.Tensor used as row pad vector. Accepts
+                shapes (D,), (1, D) or (1, 1, D). Device/dtype define output.
+
+        Returns:
+            torch.Tensor with shape (B, Lmax, D), padded with padding_tensor rows.
+        """
+        # Handle empty input
+        if tensor is None or len(tensor) == 0:
+            pad_vec = padding_tensor
+            if pad_vec.dim() == 3:
+                D = pad_vec.size(-1)
+            elif pad_vec.dim() == 2:
+                D = pad_vec.size(-1)
+            else:
+                D = pad_vec.numel()
+            return torch.zeros(0, 0, D, device=pad_vec.device, dtype=pad_vec.dtype)
+
+        # Normalize pad vector to shape (D,)
+        pad_vec = padding_tensor
+        if pad_vec.dim() == 3:
+            pad_vec = pad_vec.squeeze(0).squeeze(0)
+        elif pad_vec.dim() == 2:
+            pad_vec = pad_vec.squeeze(0)
+        # Now pad_vec should be (D,)
+
+        # Infer sizes
+        max_len = max(x.size(0) for x in tensor)
+        D = tensor[0].size(1)
+        B = len(tensor)
+
+        if pad_vec.numel() != D:
+            raise ValueError(f"padding_tensor last dim {pad_vec.numel()} != feature dim {D}")
+
+        # Pre-fill with pad rows
+        out = pad_vec.view(1, 1, D).expand(B, max_len, D).clone()
+
+        # Copy each sequence to the front part
+        for i, x in enumerate(tensor):
+            L = x.size(0)
+            if L > 0:
+                out[i, :L, :] = x
+
+        return out
+
+    def pad_unpad_sequence_multi_head(self, sos_eos_emb, text_token, text_token_len, task_id_emb, speech_token, speech_token_len):
+        batch_size = text_token.size(0)
+
+        text_token_list = unpad_sequence(text_token, text_token_len.cpu(), batch_first=True)
+        speech_token_list = unpad_sequence(speech_token, speech_token_len.cpu(), batch_first=True)
+
+        lm_input_list = []
+        for i in range(batch_size):
+            # 1. encode text_token
+            current_batch_text_token_embedding = self.llm.model.model.embed_tokens(text_token_list[i])
+            current_batch_speech_token_embedding = self.speech_embedding(speech_token_list[i])
+
+            lm_input_list.append(torch.concat([sos_eos_emb.squeeze(dim=0), current_batch_text_token_embedding, task_id_emb.squeeze(dim=0), current_batch_speech_token_embedding], dim=0))
+        
+        pad_vec = self.speech_embedding.weight[self.speech_token_size].to(text_token.device)
+        
+        input_len = torch.tensor([i.size(0) for i in lm_input_list], dtype=torch.int32)
+
+        lm_input_tensor = self.pad_tensor(lm_input_list, pad_vec)
+
+        lm_target_per_head_batch = [
+                    [ torch.tensor([IGNORE_ID] * (1 + text_token_len[i]) + speech_token_list[i][count:speech_token_len[i]+count].tolist() +
+                                [self.speech_token_size] + [IGNORE_ID] * count) for i in range(batch_size)]
+                for count in range(self.head_num)]
+        
+        for head in range(self.head_num):
+            lm_target_per_head_batch[head] = pad_sequence(lm_target_per_head_batch[head], batch_first=True, padding_value=IGNORE_ID).to(text_token.device)
+
+        return lm_input_tensor.to(text_token.device), lm_target_per_head_batch, input_len
+
     def forward(
             self,
             **kwargs,
@@ -367,50 +448,33 @@ class Qwen2LM(TransformerLM):
         if not isinstance(speech_token_len, torch.Tensor):
             raise ValueError("speech_token_len must be a torch.Tensor")
 
-        # 1. prepare llm_target
-        lm_targets = [torch.tensor(
-                        [[IGNORE_ID] * (1 + text_token_len[i]) + speech_token[i, count:speech_token_len[i]+count].tolist() +
-                                  [self.speech_token_size] + [IGNORE_ID] * count for i in range(text_token.size(0))],
-                        device=text_token.device
-                    ) 
-                    for count in range(self.head_num)]
-        # 1. encode text_token
-        text_token = self.llm.model.model.embed_tokens(text_token)
-
-
-        # 3. eos and task_id
+        # 1. eos and task_id
         sos_eos_emb = self.llm_embedding.weight[self.sos_eos].reshape(1, 1, -1)
         task_id_emb = self.llm_embedding.weight[self.task_id].reshape(1, 1, -1)
 
-        # 4. encode speech_token
-        speech_token = self.speech_embedding(speech_token)
+        lm_input_tensor, lm_target_per_head_batch, input_len = self.pad_unpad_sequence_multi_head(sos_eos_emb, text_token, text_token_len, task_id_emb, speech_token, speech_token_len)
 
-        # 5. unpad and pad
-        # lm_input, lm_input_len = self.pad_unpad_sequence(sos_eos_emb, text_token, text_token_len,
-        #                                                  task_id_emb, speech_token, speech_token_len)
-
-        lm_input = torch.concat([sos_eos_emb, text_token, task_id_emb, speech_token], dim=1)
-        lm_input_len = torch.tensor([lm_input.size(1)], dtype=torch.int32)
 
         # 验证lm_input和lm_targets的维度是否一致
         for i in range(self.head_num):
-            assert lm_input.shape[1] == lm_targets[i].shape[1], f"lm_input和lm_targets的维度不一致: {lm_input.shape[1]} != {lm_targets[i].shape[1]}"
-
-        mask = torch.tril(torch.ones((1, lm_input.shape[1], lm_input.shape[1]), device=lm_input.device)).to(torch.bool)
+            assert lm_input_tensor.shape[1] == lm_target_per_head_batch[i].shape[1], f"lm_input和lm_targets的维度不一致: {lm_input_tensor.shape[1]} != {lm_target_per_head_batch[i].shape[1]}"
 
         # 6. run lm forward
-        lm_output = self.llm(lm_input, mask)
+        lm_output, lm_output_mask = self.llm(lm_input_tensor, input_len)
         mtp_output = [self.mtp_block[i](lm_output.transpose(0, 1))[0].transpose(0, 1) for i in range(self.head_num)]
         logits = [self.llm_decoder[i](mtp_output[i]) for i in range(self.head_num)]
 
+        for i in range(self.head_num):
+            assert logits[i].shape[:2] == lm_target_per_head_batch[i].shape, \
+                f"expected logits (B,L,C) to match target (B,L), got {logits[i].shape} vs {lm_target_per_head_batch[i].shape}"
+
         # 定义损失和准确率列表
         losses = [
-            self.criterion_ce(logits[i], lm_targets[i]) for i in range(self.head_num)
+            self.criterion_ce(logits[i], lm_target_per_head_batch[i]) for i in range(self.head_num)
         ]
         accs = [
-            th_accuracy(logits[i].view(-1, self.speech_token_size + 3), lm_targets[i], ignore_label=IGNORE_ID) for i in range(self.head_num)
+            th_accuracy(logits[i].view(-1, self.speech_token_size + 3), lm_target_per_head_batch[i], ignore_label=IGNORE_ID) for i in range(self.head_num)
         ]
-
         # 使用 torch.stack 和 torch.sum/mean 计算总损失和准确率
         total_loss = torch.stack(losses).mean()
         total_acc = torch.stack(accs).mean()
