@@ -46,6 +46,7 @@ class TrainingState:
         self.cmdline: List[str] = []
         self.log_file: Optional[Any] = None  # 日志文件句柄
         self.logging_steps: int = 50  # 默认每50步记录一次，会在训练时更新
+        self.eval_steps: int = 500  # 默认每500步评估一次，会在训练时更新
         
 training_state = TrainingState()
 
@@ -106,7 +107,8 @@ def start_training(
     device_choice: str,
     gpu_processes: float,
     gpu_ids: str,
-    logging_steps: int = 50
+    logging_steps: int = 50,
+    eval_steps: int = 500
 ):
     """以子进程方式启动训练脚本，并在当前 Gradio 中管理生命周期。"""
     global training_state
@@ -132,6 +134,7 @@ def start_training(
         # 保存状态
         training_state.output_dir = output_dir
         training_state.logging_steps = logging_steps  # 保存 logging_steps 值
+        training_state.eval_steps = eval_steps  # 保存 eval_steps 值
         training_state.log_lines = []
         training_state.cached_log_text = "正在启动训练..."
         training_state.last_log_update = 0
@@ -177,6 +180,7 @@ def start_training(
             "--num_train_epochs", str(int(epochs)),
             "--save_steps", str(int(save_interval)),
             "--logging_steps", str(int(logging_steps)),  # 添加 logging_steps 参数
+            "--eval_steps", str(int(eval_steps)),  # 添加 eval_steps 参数
             "--val_split_ratio", str(float(validation_split)),
         ]
         
@@ -489,43 +493,89 @@ def _parse_metrics_from_lines(lines: List[str]) -> Dict[str, List[float]]:
     metrics: Dict[str, List[float]] = {
         'steps': [],
         'loss': [],
+        'eval_loss': [],
         'grad_norm': [],
         'learning_rate': [],
         'epoch': []
     }
     try:
-        step = 0
+        train_logs = []
+        eval_logs = []
+        
         for line in lines:
             s = line.strip()
-            if not s or not s.startswith('{') or 'loss' not in s:
+            # 清理 ANSI 控制码（如 [A 等）
+            import re
+            s = re.sub(r'\x1b\[[A-Za-z0-9;]*[A-Za-z]', '', s)  # 移除ANSI escape sequences
+            s = re.sub(r'\[A', '', s)  # 移除 [A 控制码
+            s = s.strip()
+            
+            if not s or not s.startswith('{'):
                 continue
+                
             try:
                 import ast
                 d = ast.literal_eval(s)
-                if isinstance(d, dict) and 'loss' in d:
-                    step += 1
-                    metrics['steps'].append(step)
-                    metrics['loss'].append(float(d['loss']))
-                    metrics['grad_norm'].append(float(d.get('grad_norm', 0)))
-                    metrics['learning_rate'].append(float(d.get('learning_rate', 0)))
-                    metrics['epoch'].append(float(d.get('epoch', 0)))
+                if isinstance(d, dict):
+                    if 'loss' in d:  # 训练日志
+                        train_logs.append(d)
+                    elif 'eval_loss' in d:  # 评估日志
+                        eval_logs.append(d)
                     continue
             except Exception:
                 pass
-            # 回退到正则
-            loss_match = re.search(r"'loss':\s*([\d\.-eE]+)", s)
-            if loss_match:
-                step += 1
-                metrics['steps'].append(step)
-                metrics['loss'].append(float(loss_match.group(1)))
-                grad_norm_match = re.search(r"'grad_norm':\s*([\d\.-eE]+)", s)
-                lr_match = re.search(r"'learning_rate':\s*([\d\.-eE]+)", s)
-                epoch_match = re.search(r"'epoch':\s*([\d\.-eE]+)", s)
-                metrics['grad_norm'].append(float(grad_norm_match.group(1)) if grad_norm_match else (metrics['grad_norm'][-1] if metrics['grad_norm'] else 0))
-                metrics['learning_rate'].append(float(lr_match.group(1)) if lr_match else (metrics['learning_rate'][-1] if metrics['learning_rate'] else 0))
-                metrics['epoch'].append(float(epoch_match.group(1)) if epoch_match else (metrics['epoch'][-1] if metrics['epoch'] else 0))
-    except Exception:
-        pass
+            
+            # 回退到正则表达式
+            if 'loss' in s and "'loss'" in s:
+                try:
+                    import ast
+                    d = ast.literal_eval(s)
+                    if isinstance(d, dict):
+                        if 'loss' in d:
+                            train_logs.append(d)
+                        elif 'eval_loss' in d:
+                            eval_logs.append(d)
+                except Exception:
+                    # 最后的回退：正则表达式
+                    loss_match = re.search(r"'loss':\s*([\d\.-eE]+)", s)
+                    if loss_match:
+                        d = {'loss': float(loss_match.group(1))}
+                        grad_norm_match = re.search(r"'grad_norm':\s*([\d\.-eE]+)", s)
+                        lr_match = re.search(r"'learning_rate':\s*([\d\.-eE]+)", s)
+                        epoch_match = re.search(r"'epoch':\s*([\d\.-eE]+)", s)
+                        if grad_norm_match:
+                            d['grad_norm'] = float(grad_norm_match.group(1))
+                        if lr_match:
+                            d['learning_rate'] = float(lr_match.group(1))
+                        if epoch_match:
+                            d['epoch'] = float(epoch_match.group(1))
+                        train_logs.append(d)
+                    
+                    eval_loss_match = re.search(r"'eval_loss':\s*([\d\.-eE]+)", s)
+                    if eval_loss_match:
+                        eval_logs.append({'eval_loss': float(eval_loss_match.group(1))})
+        
+        # 构建训练数据
+        for i, d in enumerate(train_logs):
+            metrics['steps'].append(i + 1)
+            metrics['loss'].append(float(d.get('loss', 0)))
+            metrics['grad_norm'].append(float(d.get('grad_norm', 0)))
+            metrics['learning_rate'].append(float(d.get('learning_rate', 0)))
+            metrics['epoch'].append(float(d.get('epoch', 0)))
+        
+        # 构建评估数据
+        for d in eval_logs:
+            metrics['eval_loss'].append(float(d.get('eval_loss', 0)))
+        
+        logger.info(f"🔍 从日志行解析: train_logs={len(train_logs)}, eval_logs={len(eval_logs)}")
+        if eval_logs:
+            logger.info(f"🔍 日志行中找到的 eval_logs 样本: {eval_logs[0] if eval_logs else 'None'}")
+        if train_logs:
+            logger.info(f"🔍 日志行中找到的 train_logs 样本: {train_logs[0] if train_logs else 'None'}")
+        
+    except Exception as e:
+        logger.warning(f"解析日志行失败: {e}")
+        
     return metrics
 
 def generate_training_plot(force_update: bool = False):
@@ -561,39 +611,40 @@ def generate_training_plot(force_update: bool = False):
                 with open(state_file, "r", encoding="utf-8") as f:
                     st = json.load(f)
                 logs = st.get("log_history", []) or []
+                
+                # 分别处理训练和评估日志
+                train_logs = []
+                eval_logs = []
+                
                 for entry in logs:
                     if not isinstance(entry, dict):
                         continue
+                    # 注意：eval_loss 条目通常也包含其他字段，需要准确识别
+                    if "eval_loss" in entry:  # 评估日志 - 优先检查
+                        eval_logs.append(entry)
+                    elif "loss" in entry and "eval_loss" not in entry:  # 训练日志
+                        train_logs.append(entry)
+                
+                # 处理训练日志
+                for i, entry in enumerate(train_logs):
                     s = entry.get("step")
-                    if s is None:
-                        continue
-                    steps.append(int(s))
-                    if "loss" in entry:
-                        try:
-                            loss.append(float(entry["loss"]))
-                        except Exception:
-                            pass
-                    if "grad_norm" in entry:
-                        try:
-                            grad_norm.append(float(entry["grad_norm"]))
-                        except Exception:
-                            pass
-                    if "eval_loss" in entry:
-                        try:
-                            eval_loss.append(float(entry["eval_loss"]))
-                        except Exception:
-                            pass
-                    if "learning_rate" in entry:
-                        try:
-                            learning_rate.append(float(entry["learning_rate"]))
-                        except Exception:
-                            pass
-                    if "epoch" in entry:
-                        try:
-                            epoch.append(float(entry["epoch"]))
-                        except Exception:
-                            pass
-            except Exception:
+                    if s is not None:
+                        steps.append(int(s))
+                        loss.append(float(entry.get("loss", 0)))
+                        grad_norm.append(float(entry.get("grad_norm", 0)))
+                        learning_rate.append(float(entry.get("learning_rate", 0)))
+                        epoch.append(float(entry.get("epoch", 0)))
+                
+                # 处理评估日志（独立处理）
+                for entry in eval_logs:
+                    eval_loss.append(float(entry.get("eval_loss", 0)))
+                
+                logger.info(f"🔍 从 trainer_state.json 解析: train_logs={len(train_logs)}, eval_logs={len(eval_logs)}")
+                if eval_logs:
+                    logger.info(f"🔍 找到的 eval_logs 样本: {eval_logs[0] if eval_logs else 'None'}")
+                
+            except Exception as e:
+                logger.warning(f"解析 trainer_state.json 失败: {e}")
                 # 读取失败则退回日志解析
                 steps = []
 
@@ -602,6 +653,7 @@ def generate_training_plot(force_update: bool = False):
             m = _parse_metrics_from_lines(training_state.log_lines)
             steps = m['steps']
             loss = m['loss']
+            eval_loss = m['eval_loss']
             learning_rate = m['learning_rate']
             epoch = m['epoch']
             grad_norm = m['grad_norm']
@@ -609,6 +661,18 @@ def generate_training_plot(force_update: bool = False):
         # 如果没有数据，返回空
         if not steps:
             return None
+            
+        # 调试信息：记录数据数量
+        valid_eval_count = len([v for v in eval_loss if v > 0])
+        logger.info(f"🎯 绘图数据统计: steps={len(steps)}, loss={len(loss)}, eval_loss={len(eval_loss)}, valid_eval_loss={valid_eval_count}")
+        logger.info(f"📊 完整 eval_loss 数组: {eval_loss}")  # 显示完整数组
+        if eval_loss:
+            logger.info(f"📊 eval_loss 样本: {eval_loss[:5]}...")  # 显示前5个值
+            logger.info(f"📊 eval_loss 数据类型: {[type(v) for v in eval_loss[:3]]}")
+        if valid_eval_count > 0:
+            logger.info(f"✅ 发现有效 eval_loss 数据，应该会显示eval loss曲线")
+        else:
+            logger.warning(f"⚠️ 没有有效的 eval_loss 数据！原始数据: {eval_loss[:10]}")
 
         # 统一长度（简单对齐，缺失用 None 跳过绘图）
         import matplotlib.pyplot as plt
@@ -643,24 +707,27 @@ def generate_training_plot(force_update: bool = False):
             # 旋转标签避免重叠
             ax.tick_params(axis='x', rotation=45)
 
-        # Loss / Eval Loss (根据logging_steps记录间隔显示真实步数)
+        # Train Loss (左上角)
         if loss:
-            actual_steps = [s * training_state.logging_steps for s in range(len(loss))]
-            ax1.plot(actual_steps, loss, color='blue', linewidth=2, marker='o', markersize=3, alpha=0.7, label='train loss')
-        if eval_loss:
-            actual_steps_eval = [s * training_state.logging_steps for s in range(len(eval_loss))]
-            ax1.plot(actual_steps_eval, eval_loss, color='purple', linewidth=2, marker='x', markersize=3, alpha=0.7, label='eval loss')
-        ax1.set_title('Loss', fontsize=12)
+            # 过滤掉为0的loss值
+            valid_loss = [(i, v) for i, v in enumerate(loss) if v > 0]
+            if valid_loss:
+                loss_indices, loss_values = zip(*valid_loss)
+                actual_steps = [i * training_state.logging_steps for i in loss_indices]
+                ax1.plot(actual_steps, loss_values, color='blue', linewidth=2, marker='o', markersize=3, alpha=0.7, label='train loss')
+        ax1.set_title('Train Loss', fontsize=12)
         ax1.set_xlabel('Steps')
         ax1.set_ylabel('Loss')
         ax1.grid(True, alpha=0.3)
-        if loss or eval_loss:
-            ax1.legend()
-        # 应用自适应横坐标格式
+        # 应用自适应横坐标格式（只考虑训练损失）
         if loss:
-            format_x_axis(ax1, actual_steps)
-        elif eval_loss:
-            format_x_axis(ax1, actual_steps_eval)
+            valid_loss = [(i, v) for i, v in enumerate(loss) if v > 0]
+            if valid_loss:
+                loss_indices, _ = zip(*valid_loss)
+                actual_steps = [i * training_state.logging_steps for i in loss_indices]
+                format_x_axis(ax1, actual_steps)
+        if loss:
+            ax1.legend()
 
         # Gradient Norm (根据logging_steps记录间隔显示真实步数)
         if grad_norm and any(x > 0 for x in grad_norm):  # 只有在有有效数据时才绘制
@@ -687,16 +754,27 @@ def generate_training_plot(force_update: bool = False):
         if learning_rate:
             format_x_axis(ax3, actual_steps_lr)
 
-        # Epoch (根据logging_steps记录间隔显示真实步数)
-        if epoch:
-            actual_steps_epoch = [s * training_state.logging_steps for s in range(len(epoch))]
-            ax4.plot(actual_steps_epoch, epoch, color='red', linewidth=2, marker='d', markersize=3, alpha=0.7)
-        ax4.set_title('Epoch', fontsize=12)
+        # Eval Loss (根据eval_steps记录间隔显示真实步数)
+        if eval_loss:
+            # 过滤掉为0的eval_loss值
+            valid_eval_loss = [(i, v) for i, v in enumerate(eval_loss) if v > 0]
+            if valid_eval_loss:
+                eval_indices, eval_values = zip(*valid_eval_loss)
+                # eval_loss 从第1次评估开始，所以步数是 (i+1) * eval_steps
+                actual_steps_eval = [(i + 1) * training_state.eval_steps for i in eval_indices]
+                ax4.plot(actual_steps_eval, eval_values, color='red', linewidth=2, marker='s', markersize=4, alpha=0.7, label='eval loss')
+                format_x_axis(ax4, actual_steps_eval)
+                logger.info(f"🎨 绘制 eval_loss 曲线: {len(eval_values)} 个点，步数范围 {min(actual_steps_eval)}-{max(actual_steps_eval)}")
+            else:
+                ax4.text(0.5, 0.5, 'No Eval Data', transform=ax4.transAxes, ha='center', va='center', alpha=0.5)
+        else:
+            ax4.text(0.5, 0.5, 'No Eval Data', transform=ax4.transAxes, ha='center', va='center', alpha=0.5)
+        ax4.set_title('Eval Loss', fontsize=12)
         ax4.set_xlabel('Steps')
-        ax4.set_ylabel('Epoch')
+        ax4.set_ylabel('Eval Loss')
         ax4.grid(True, alpha=0.3)
-        if epoch:
-            format_x_axis(ax4, actual_steps_epoch)
+        if eval_loss:
+            ax4.legend()
 
         plt.tight_layout()
         
@@ -1006,6 +1084,7 @@ def create_training_tab():
                     epochs = gr.Slider(1, 100, value=5, step=1, label="训练轮数")
                     save_interval = gr.Slider(100, 10000, value=1000, step=100, label="保存间隔(步数)")
                     logging_steps = gr.Slider(10, 500, value=50, step=10, label="日志记录间隔(步数)")
+                    eval_steps = gr.Slider(50, 2000, value=500, step=50, label="评估间隔(步数)")
                 
                 with gr.Group():
                     validation_split = gr.Slider(0.01, 0.3, value=0.05, step=0.01, label="验证集比例")
@@ -1142,7 +1221,7 @@ def create_training_tab():
                 batch_size, learning_rate, epochs, save_interval, validation_split,
                 gr.State("Adam"), gr.State("CosineAnnealingLR"),  # 暂时固定优化器和调度器
                 use_auto_split, enable_lora, precision_choice,
-                device_choice, gpu_processes, gpu_ids, logging_steps
+                device_choice, gpu_processes, gpu_ids, logging_steps, eval_steps
             ],
             outputs=training_status
         )
