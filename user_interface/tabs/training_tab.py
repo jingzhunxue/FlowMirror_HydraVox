@@ -44,6 +44,7 @@ class TrainingState:
         self.exit_code: Optional[int] = None
         self.output_dir: Optional[str] = None
         self.cmdline: List[str] = []
+        self.log_file: Optional[Any] = None  # 日志文件句柄
         
 training_state = TrainingState()
 
@@ -123,6 +124,9 @@ def start_training(
         if not script_path.exists():
             return f"❌ 找不到训练脚本: {script_path}"
 
+        # 设置训练开始时间
+        training_state.start_time = time.time()
+        
         # 保存状态
         training_state.output_dir = output_dir
         training_state.log_lines = []
@@ -132,12 +136,20 @@ def start_training(
         training_state.last_log_size = 0
         training_state.exit_code = None
         training_state.end_time = None
-        if training_state.cached_plot_path and os.path.exists(training_state.cached_plot_path):
-            try:
-                os.remove(training_state.cached_plot_path)
-            except Exception:
-                pass
+        # 清空训练图表缓存，避免显示上次训练的图表
         training_state.cached_plot_path = None
+        training_state.last_plot_update = 0
+        
+        # 创建日志文件（现在start_time已经设置）
+        log_dir = Path("logs/training")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file_path = log_dir / f"train_{int(training_state.start_time)}.log"
+        try:
+            training_state.log_file = open(log_file_path, "w", encoding="utf-8")
+            logger.info(f"训练日志将保存到: {log_file_path}")
+        except Exception as e:
+            logger.warning(f"无法创建日志文件: {e}")
+            training_state.log_file = None
 
         # 自动验证集路径逻辑
         cv_data_arg = None
@@ -160,9 +172,12 @@ def start_training(
             "--per_device_train_batch_size", str(int(batch_size)),
             "--learning_rate", str(float(learning_rate)),
             "--num_train_epochs", str(int(epochs)),
-            "--save_steps", str(int(save_interval) * 100),
+            "--save_steps", str(int(save_interval)),
             "--val_split_ratio", str(float(validation_split)),
         ]
+        
+        # 记录训练参数以便调试
+        logger.info(f"训练参数: batch_size={batch_size}, lr={learning_rate}, epochs={epochs}, save_steps={save_interval}")
         if use_auto_split:
             script_args.append("--auto_val_split")
         else:
@@ -216,9 +231,11 @@ def start_training(
         ]
 
         training_state.cmdline = cmd
+        
+        # 记录完整的命令以便调试
+        logger.info(f"执行训练命令: {' '.join(cmd)}")
 
         # 启动子进程（独立进程组，便于停止）
-        training_state.start_time = time.time()
         try:
             training_state.proc = subprocess.Popen(
                 cmd,
@@ -249,6 +266,13 @@ def start_training(
                     training_state.log_lines.append(line)
                     if len(training_state.log_lines) > 2000:
                         training_state.log_lines = training_state.log_lines[-2000:]
+                    # 同时写入日志文件
+                    if training_state.log_file:
+                        try:
+                            training_state.log_file.write(line + "\n")
+                            training_state.log_file.flush()  # 实时刷新
+                        except Exception as we:
+                            logger.warning(f"写入日志文件失败: {we}")
                     # 轻量更新缓存文本标记更新时间
                     training_state.cached_log_text = "\n".join(training_state.log_lines[-200:])
                     training_state.last_log_update = time.time()
@@ -263,6 +287,14 @@ def start_training(
                     pass
                 training_state.is_training = False
                 training_state.end_time = time.time()
+                # 关闭日志文件
+                if training_state.log_file:
+                    try:
+                        training_state.log_file.close()
+                        training_state.log_file = None
+                        logger.info("训练日志文件已关闭")
+                    except Exception:
+                        pass
 
         training_state.reader_thread = threading.Thread(target=_reader, daemon=True)
         training_state.reader_thread.start()
@@ -307,6 +339,13 @@ def stop_training():
         training_state.end_time = time.time()
         code = proc.returncode
         training_state.exit_code = code
+        # 关闭日志文件
+        if training_state.log_file:
+            try:
+                training_state.log_file.close()
+                training_state.log_file = None
+            except Exception:
+                pass
         return f"🛑 训练已停止 (退出码: {code})"
     except Exception as e:
         logger.error(f"停止训练失败: {e}")
@@ -491,16 +530,17 @@ def generate_training_plot(force_update: bool = False):
     
     current_time = time.time()
     
-    # 缓存控制
+    # 缓存控制 - 简化逻辑，避免缓存问题
     if not force_update and training_state.cached_plot_path and os.path.exists(training_state.cached_plot_path):
         time_since_last_update = current_time - training_state.last_plot_update
-        if time_since_last_update < training_state.plot_cache_duration:
+        # 只有在没有新数据时才使用缓存
+        if time_since_last_update < training_state.plot_cache_duration and not training_state.is_training:
             logger.debug(f"使用缓存的训练图表，距离上次更新 {time_since_last_update:.1f} 秒")
             return training_state.cached_plot_path
 
-    # 没有任务时返回示例
-    if not training_state.output_dir:
-        return _generate_sample_plot()
+    # 没有任务时返回空
+    if not training_state.output_dir or not training_state.current_training_id:
+        return None
 
     try:
         steps: List[int] = []
@@ -508,6 +548,7 @@ def generate_training_plot(force_update: bool = False):
         eval_loss: List[float] = []
         learning_rate: List[float] = []
         epoch: List[float] = []
+        grad_norm: List[float] = []
 
         # 优先解析 trainer_state.json
         state_file = os.path.join(training_state.output_dir, "trainer_state.json")
@@ -526,6 +567,11 @@ def generate_training_plot(force_update: bool = False):
                     if "loss" in entry:
                         try:
                             loss.append(float(entry["loss"]))
+                        except Exception:
+                            pass
+                    if "grad_norm" in entry:
+                        try:
+                            grad_norm.append(float(entry["grad_norm"]))
                         except Exception:
                             pass
                     if "eval_loss" in entry:
@@ -554,11 +600,11 @@ def generate_training_plot(force_update: bool = False):
             loss = m['loss']
             learning_rate = m['learning_rate']
             epoch = m['epoch']
-            # grad_norm 不显示（保留第二子图占位）
+            grad_norm = m['grad_norm']
 
-        # 如果仍然没有可绘制数据，返回示例或保持现状
-        if not steps and not loss and not eval_loss and not learning_rate and not epoch:
-            return _generate_sample_plot()
+        # 如果没有数据，返回空
+        if not steps:
+            return None
 
         # 统一长度（简单对齐，缺失用 None 跳过绘图）
         import matplotlib.pyplot as plt
@@ -578,12 +624,15 @@ def generate_training_plot(force_update: bool = False):
         if loss or eval_loss:
             ax1.legend()
 
-        # Grad Norm (Trainer default none, placeholder)
+        # Gradient Norm
+        if grad_norm and any(x > 0 for x in grad_norm):  # 只有在有有效数据时才绘制
+            ax2.plot(steps[:len(grad_norm)], grad_norm, color='orange', linewidth=2, marker='s', markersize=3, alpha=0.7)
         ax2.set_title('Gradient Norm', fontsize=12)
         ax2.set_xlabel('Steps')
         ax2.set_ylabel('Grad Norm')
         ax2.grid(True, alpha=0.3)
-        ax2.text(0.5, 0.5, 'No Data', transform=ax2.transAxes, ha='center', va='center', alpha=0.5)
+        if not grad_norm or not any(x > 0 for x in grad_norm):
+            ax2.text(0.5, 0.5, 'No Data', transform=ax2.transAxes, ha='center', va='center', alpha=0.5)
 
         # Learning Rate
         if learning_rate:
@@ -603,67 +652,33 @@ def generate_training_plot(force_update: bool = False):
         ax4.grid(True, alpha=0.3)
 
         plt.tight_layout()
-        plot_path = f"/tmp/training_plot_{int(current_time)}.png"
-        plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-        plt.close()
+        
+        # 将图表保存到训练输出目录下的figure文件夹
+        if training_state.output_dir:
+            figure_dir = os.path.join(training_state.output_dir, "figure")
+            os.makedirs(figure_dir, exist_ok=True)
+            # 只保存一个固定名称的图片，避免产生大量文件
+            plot_path = os.path.join(figure_dir, "training_plot.png")
+        else:
+            plot_path = f"/tmp/training_plot_{int(current_time)}.png"
+        
+        try:
+            plt.savefig(plot_path, dpi=150, bbox_inches='tight', facecolor='white')
+            logger.debug(f"训练图表已更新: {plot_path}")
+        except Exception as save_error:
+            logger.error(f"保存训练图表失败: {save_error}")
+        finally:
+            plt.close()
 
-        # 替换缓存
-        if training_state.cached_plot_path and os.path.exists(training_state.cached_plot_path):
-            try:
-                os.remove(training_state.cached_plot_path)
-            except Exception:
-                pass
+        # 更新缓存
         training_state.cached_plot_path = plot_path
         training_state.last_plot_update = current_time
         return plot_path
     except Exception as e:
         logger.error(f"生成训练图表失败: {e}")
-        return _generate_sample_plot()
+        return None
 
-def _generate_sample_plot():
-    """生成示例训练图表"""
-    # 模拟训练数据
-    steps = np.arange(1, 101)
-    loss = 6.0 * np.exp(-steps/50) + 0.5 + 0.1 * np.random.randn(100)
-    grad_norm = 3.0 * np.exp(-steps/60) + 0.1 + 0.05 * np.random.randn(100)
-    lr = 1e-4 * np.ones(100) * np.exp(-steps/200)  # 衰减的学习率
-    epoch = steps / 50  # 假设50步为一个epoch
-    
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
-    fig.suptitle('Training Progress - Sample Data', fontsize=16)
-    
-    ax1.plot(steps, loss, color='blue', linewidth=2)
-    ax1.set_title('Training Loss', fontsize=12)
-    ax1.set_xlabel('Steps')
-    ax1.set_ylabel('Loss')
-    ax1.grid(True, alpha=0.3)
-    
-    ax2.plot(steps, grad_norm, color='orange', linewidth=2)
-    ax2.set_title('Gradient Norm', fontsize=12)
-    ax2.set_xlabel('Steps')
-    ax2.set_ylabel('Grad Norm')
-    ax2.grid(True, alpha=0.3)
-    
-    ax3.plot(steps, lr, color='green', linewidth=2)
-    ax3.set_title('Learning Rate', fontsize=12)
-    ax3.set_xlabel('Steps')
-    ax3.set_ylabel('Learning Rate')
-    ax3.grid(True, alpha=0.3)
-    ax3.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
-    
-    ax4.plot(steps, epoch, color='red', linewidth=2)
-    ax4.set_title('Epoch', fontsize=12)
-    ax4.set_xlabel('Steps')
-    ax4.set_ylabel('Epoch')
-    ax4.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    
-    plot_path = "/tmp/training_plot.png"
-    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    
-    return plot_path
+# 已删除示例图表生成函数
 
 def get_model_list():
     """获取训练输出目录下的模型文件夹列表"""
@@ -712,8 +727,8 @@ def _scan_output_directory(output_path: Path, processed_folders: set):
         if folder_path.is_dir():
             folder_name = folder_path.name
             
-            # 跳过日志目录和已处理的文件夹
-            if folder_name == "runs" or folder_name in processed_folders:
+            # 跳过日志目录、图表目录和已处理的文件夹
+            if folder_name in ["runs", "logs", "figure"] or folder_name in processed_folders:
                 continue
                 
             # 跳过嵌套的输出目录本身（避免显示checkpoints/training这样的路径）
@@ -807,7 +822,7 @@ def delete_model(folder_name: str):
         
         if folder_path and folder_path.exists() and folder_path.is_dir():
             # 确认不是重要的系统文件夹
-            if folder_path.name in ["runs"]:
+            if folder_path.name in ["runs", "logs", "figure"]:
                 return f"⚠️ 不允许删除系统文件夹: {folder_name}", get_model_list()
             
             # 删除整个文件夹
@@ -863,19 +878,13 @@ def convert_checkpoint_to_pt(folder_path_str: str):
         return f"❌ 转换失败: {e}"
 
 def update_batch_size_constraints(model_type: str):
-    """根据模型类型更新batch_size限制"""
+    """根据模型类型更新batch_size推荐值"""
     if model_type == "llm":
-        # LLM模型必须使用batch_size=1
-        return (
-            gr.update(value=1, maximum=1, interactive=False),  # batch_size slider
-            gr.update(visible=True)  # info message
-        )
+        # LLM模型推荐使用较小的batch_size
+        return gr.update(value=2, maximum=32, interactive=True)  # batch_size slider
     else:
         # Flow模型可以使用更大的batch_size
-        return (
-            gr.update(value=4, maximum=32, interactive=True),  # batch_size slider
-            gr.update(visible=False)  # info message
-        )
+        return gr.update(value=8, maximum=32, interactive=True)  # batch_size slider
 
 def update_precision_options(model_type: str):
     """根据模型类型更新精度选项和推荐"""
@@ -945,8 +954,7 @@ def create_training_tab():
                 # 训练参数配置
                 gr.Markdown("#### 3. 训练参数")
                 with gr.Group():
-                    batch_size = gr.Slider(1, 32, value=1, step=1, label="批次大小", maximum=1, interactive=False)
-                    batch_size_info = gr.Markdown("💡 **注意**: LLM模型训练时batch_size必须为1，Flow模型可以使用更大的batch_size", visible=True)
+                    batch_size = gr.Slider(1, 32, value=2, step=1, label="批次大小", interactive=True)
                     learning_rate = gr.Number(value=1e-4, label="学习率", minimum=1e-6, maximum=1e-2)
                     epochs = gr.Slider(1, 100, value=5, step=1, label="训练轮数")
                     save_interval = gr.Slider(100, 10000, value=1000, step=100, label="保存间隔(步数)")
@@ -1008,7 +1016,7 @@ def create_training_tab():
                 gr.Markdown("#### 训练曲线")
                 with gr.Row():
                     with gr.Column(scale=3):
-                        training_plot = gr.Image(label="训练指标曲线", value=_generate_sample_plot())
+                        training_plot = gr.Image(label="训练指标曲线", value=None)
                     with gr.Column(scale=1):
                         gr.Markdown("**图表设置**")
                         auto_refresh_plot = gr.Checkbox(label="自动刷新图表", value=True)
@@ -1019,6 +1027,15 @@ def create_training_tab():
                         with gr.Row():
                             refresh_plot_btn = gr.Button("🔄 立即刷新", variant="secondary")
                             force_refresh_btn = gr.Button("⚡ 强制刷新", variant="primary")
+                        
+                        plot_save_info = gr.Markdown(
+                            """
+                            **💾 图表存储位置**  
+                            训练图表会实时更新并保存到：  
+                            `checkpoints/training/figure/training_plot.png`  
+                            """,
+                            elem_classes=["tiny-muted"]
+                        )
                 
                 # 自动刷新图表定时器
                 plot_timer = gr.Timer(value=15)  # 默认15秒刷新一次图表
@@ -1054,6 +1071,20 @@ def create_training_tab():
                     interactive=False
                 )
         
+        
+        # 动态更新图表存储位置提示
+        def update_plot_save_info(output_dir_value):
+            return f"""
+            **💾 图表存储位置**  
+            训练图表会实时更新并保存到：  
+            `{output_dir_value}/figure/training_plot.png`  
+            """
+        
+        output_dir.change(
+            fn=update_plot_save_info,
+            inputs=output_dir,
+            outputs=plot_save_info
+        )
         
         # 绑定训练控制事件
         start_btn.click(
@@ -1097,16 +1128,6 @@ def create_training_tab():
         )
         
         # 图表刷新事件
-        def update_plot_with_settings(auto_refresh_enabled):
-            """根据自动刷新设置更新图表"""
-            if auto_refresh_enabled and training_state.is_training:
-                return generate_training_plot()
-            elif not auto_refresh_enabled:
-                # 如果关闭自动刷新，返回当前缓存的图表或生成新的
-                return generate_training_plot()
-            else:
-                # 没有训练时显示示例
-                return _generate_sample_plot()
         
         def force_update_plot():
             """强制刷新图表，忽略缓存"""
@@ -1137,13 +1158,17 @@ def create_training_tab():
         )
         
         # 自动刷新图表定时器
-        def auto_refresh_plot_handler():
-            if auto_refresh_plot.value and training_state.is_training:
+        def auto_refresh_plot_handler(auto_refresh_enabled):
+            if auto_refresh_enabled and training_state.is_training:
                 return generate_training_plot()
-            return None
+            elif training_state.current_training_id and not training_state.is_training:
+                # 训练停止后也展示最后的图表
+                return generate_training_plot()
+            return gr.update()  # 不更新
         
         plot_timer.tick(
             fn=auto_refresh_plot_handler,
+            inputs=auto_refresh_plot,
             outputs=training_plot
         )
         
@@ -1187,14 +1212,14 @@ def create_training_tab():
         
         # 监听模型类型变化，自动调整batch_size限制和精度选项
         def update_model_constraints(model_type_val):
-            batch_updates = update_batch_size_constraints(model_type_val)
+            batch_update = update_batch_size_constraints(model_type_val)
             precision_updates = update_precision_options(model_type_val)
-            return batch_updates + precision_updates
+            return (batch_update,) + precision_updates
         
         model_type.change(
             fn=update_model_constraints,
             inputs=model_type,
-            outputs=[batch_size, batch_size_info, precision_choice, precision_info]
+            outputs=[batch_size, precision_choice, precision_info]
         )
 
         # 刷新设备检测

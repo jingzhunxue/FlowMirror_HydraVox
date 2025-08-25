@@ -350,6 +350,7 @@ def main():
         
         training_args = TrainingArguments(
             output_dir=args.output_dir,
+            logging_dir=os.path.join(args.output_dir, "logs"),  # 设置日志目录
             remove_unused_columns=False,  # we supply our own collator
             evaluation_strategy="steps",
             save_strategy="steps",
