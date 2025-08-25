@@ -45,6 +45,7 @@ class TrainingState:
         self.output_dir: Optional[str] = None
         self.cmdline: List[str] = []
         self.log_file: Optional[Any] = None  # 日志文件句柄
+        self.logging_steps: int = 50  # 默认每50步记录一次，会在训练时更新
         
 training_state = TrainingState()
 
@@ -104,7 +105,8 @@ def start_training(
     precision_choice: str,
     device_choice: str,
     gpu_processes: float,
-    gpu_ids: str
+    gpu_ids: str,
+    logging_steps: int = 50
 ):
     """以子进程方式启动训练脚本，并在当前 Gradio 中管理生命周期。"""
     global training_state
@@ -129,6 +131,7 @@ def start_training(
         
         # 保存状态
         training_state.output_dir = output_dir
+        training_state.logging_steps = logging_steps  # 保存 logging_steps 值
         training_state.log_lines = []
         training_state.cached_log_text = "正在启动训练..."
         training_state.last_log_update = 0
@@ -173,6 +176,7 @@ def start_training(
             "--learning_rate", str(float(learning_rate)),
             "--num_train_epochs", str(int(epochs)),
             "--save_steps", str(int(save_interval)),
+            "--logging_steps", str(int(logging_steps)),  # 添加 logging_steps 参数
             "--val_split_ratio", str(float(validation_split)),
         ]
         
@@ -608,48 +612,91 @@ def generate_training_plot(force_update: bool = False):
 
         # 统一长度（简单对齐，缺失用 None 跳过绘图）
         import matplotlib.pyplot as plt
+        import matplotlib.ticker as ticker
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
         title_id = training_state.current_training_id or "local"
         fig.suptitle(f'Training Progress - {title_id}', fontsize=16)
+        
+        # 自适应横坐标函数
+        def format_x_axis(ax, steps_data):
+            if not steps_data:
+                return
+            max_steps = max(steps_data)
+            # 根据步数范围自动调整刻度间隔
+            if max_steps < 50:
+                interval = 5
+            elif max_steps < 100:
+                interval = 10
+            elif max_steps < 1000:
+                interval = 100
+            elif max_steps < 10000:
+                interval = 1000
+            elif max_steps < 100000:
+                interval = 5000
+            else:
+                interval = 10000
+            
+            ax.xaxis.set_major_locator(ticker.MultipleLocator(interval))
+            # 格式化大数字显示
+            if max_steps >= 10000:
+                ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: f'{int(x/1000)}K' if x >= 1000 else f'{int(x)}'))
+            # 旋转标签避免重叠
+            ax.tick_params(axis='x', rotation=45)
 
-        # Loss / Eval Loss
+        # Loss / Eval Loss (根据logging_steps记录间隔显示真实步数)
         if loss:
-            ax1.plot(steps[:len(loss)], loss, color='blue', linewidth=2, marker='o', markersize=3, alpha=0.7, label='train loss')
+            actual_steps = [s * training_state.logging_steps for s in range(len(loss))]
+            ax1.plot(actual_steps, loss, color='blue', linewidth=2, marker='o', markersize=3, alpha=0.7, label='train loss')
         if eval_loss:
-            ax1.plot(steps[:len(eval_loss)], eval_loss, color='purple', linewidth=2, marker='x', markersize=3, alpha=0.7, label='eval loss')
+            actual_steps_eval = [s * training_state.logging_steps for s in range(len(eval_loss))]
+            ax1.plot(actual_steps_eval, eval_loss, color='purple', linewidth=2, marker='x', markersize=3, alpha=0.7, label='eval loss')
         ax1.set_title('Loss', fontsize=12)
         ax1.set_xlabel('Steps')
         ax1.set_ylabel('Loss')
         ax1.grid(True, alpha=0.3)
         if loss or eval_loss:
             ax1.legend()
+        # 应用自适应横坐标格式
+        if loss:
+            format_x_axis(ax1, actual_steps)
+        elif eval_loss:
+            format_x_axis(ax1, actual_steps_eval)
 
-        # Gradient Norm
+        # Gradient Norm (根据logging_steps记录间隔显示真实步数)
         if grad_norm and any(x > 0 for x in grad_norm):  # 只有在有有效数据时才绘制
-            ax2.plot(steps[:len(grad_norm)], grad_norm, color='orange', linewidth=2, marker='s', markersize=3, alpha=0.7)
+            actual_steps_grad = [s * training_state.logging_steps for s in range(len(grad_norm))]
+            ax2.plot(actual_steps_grad, grad_norm, color='orange', linewidth=2, marker='s', markersize=3, alpha=0.7)
         ax2.set_title('Gradient Norm', fontsize=12)
         ax2.set_xlabel('Steps')
         ax2.set_ylabel('Grad Norm')
         ax2.grid(True, alpha=0.3)
         if not grad_norm or not any(x > 0 for x in grad_norm):
             ax2.text(0.5, 0.5, 'No Data', transform=ax2.transAxes, ha='center', va='center', alpha=0.5)
+        else:
+            format_x_axis(ax2, actual_steps_grad)
 
-        # Learning Rate
+        # Learning Rate (根据logging_steps记录间隔显示真实步数)
         if learning_rate:
-            ax3.plot(steps[:len(learning_rate)], learning_rate, color='green', linewidth=2, marker='^', markersize=3, alpha=0.7)
+            actual_steps_lr = [s * training_state.logging_steps for s in range(len(learning_rate))]
+            ax3.plot(actual_steps_lr, learning_rate, color='green', linewidth=2, marker='^', markersize=3, alpha=0.7)
         ax3.set_title('Learning Rate', fontsize=12)
         ax3.set_xlabel('Steps')
         ax3.set_ylabel('Learning Rate')
         ax3.grid(True, alpha=0.3)
         ax3.ticklabel_format(style='scientific', axis='y', scilimits=(0,0))
+        if learning_rate:
+            format_x_axis(ax3, actual_steps_lr)
 
-        # Epoch
+        # Epoch (根据logging_steps记录间隔显示真实步数)
         if epoch:
-            ax4.plot(steps[:len(epoch)], epoch, color='red', linewidth=2, marker='d', markersize=3, alpha=0.7)
+            actual_steps_epoch = [s * training_state.logging_steps for s in range(len(epoch))]
+            ax4.plot(actual_steps_epoch, epoch, color='red', linewidth=2, marker='d', markersize=3, alpha=0.7)
         ax4.set_title('Epoch', fontsize=12)
         ax4.set_xlabel('Steps')
         ax4.set_ylabel('Epoch')
         ax4.grid(True, alpha=0.3)
+        if epoch:
+            format_x_axis(ax4, actual_steps_epoch)
 
         plt.tight_layout()
         
@@ -955,10 +1002,10 @@ def create_training_tab():
                 gr.Markdown("#### 3. 训练参数")
                 with gr.Group():
                     batch_size = gr.Slider(1, 32, value=4, step=1, label="批次大小", maximum=1, interactive=True)
-                    batch_size_info = gr.Markdown("💡 **注意**: LLM模型训练时batch_size必须为1，Flow模型可以使用更大的batch_size", visible=True)
                     learning_rate = gr.Number(value=1e-4, label="学习率", minimum=1e-6, maximum=1e-2)
                     epochs = gr.Slider(1, 100, value=5, step=1, label="训练轮数")
                     save_interval = gr.Slider(100, 10000, value=1000, step=100, label="保存间隔(步数)")
+                    logging_steps = gr.Slider(10, 500, value=50, step=10, label="日志记录间隔(步数)")
                 
                 with gr.Group():
                     validation_split = gr.Slider(0.01, 0.3, value=0.05, step=0.01, label="验证集比例")
@@ -1095,7 +1142,7 @@ def create_training_tab():
                 batch_size, learning_rate, epochs, save_interval, validation_split,
                 gr.State("Adam"), gr.State("CosineAnnealingLR"),  # 暂时固定优化器和调度器
                 use_auto_split, enable_lora, precision_choice,
-                device_choice, gpu_processes, gpu_ids
+                device_choice, gpu_processes, gpu_ids, logging_steps
             ],
             outputs=training_status
         )
