@@ -20,8 +20,7 @@
   <a href="#python-api">Python API</a> •
   <a href="#models--weights">模型</a> •
   <a href="#train--finetune">训练</a> •
-  <a href="#-architecture">架构</a> •
-  <a href="#-license">许可</a>
+  <a href="#license">许可</a>
 </p>
 
 <p align="center">
@@ -33,7 +32,7 @@
 
 ---
 
-## ✨ 亮点
+## ✨ Highlights
 
 - **多头自回归解码**：每步预测多个语音 token → 在相同质量目标下实现更低延迟与更高吞吐。
 - **即开即用的 WebUI**：推理、快速批量合成、微调（即将支持）、说话人管理、日志/曲线。
@@ -46,14 +45,14 @@
 
 ---
 
-## 🔊 样例与演示
+## 🔊 Samples & Demo
 
 - **音频样例**：`assets/samples`
 - **在线演示**：`http://localhost:7890`
 
 ---
 
-## 🚀 快速开始（1 分钟）
+## 🚀 Quickstart (1 minute)
 
 > **前置**：Python 3.10+，已安装 FFmpeg 并在 PATH；推荐 NVIDIA GPU + CUDA 12.x；支持 CPU（较慢）。
 
@@ -114,7 +113,7 @@ logs/                    # 训练/推理日志
 ---
 
 <a name="roadmap"></a>
-## 路线图
+## Roadmap
 
 ...
 - [ ] 2025/10
@@ -249,7 +248,7 @@ def zero_shot(tts_text: str, prompt_text: str, prompt_wav_path: str,
 
 ---
 
-## 🧠 模型与权重
+## Models & Weights
 
 | 名称                     | 参数量 | 语言 | 类型            | 多头 | 链接 |
 | ------------------------ | ----: | ---- | --------------- | ---: | ---- |
@@ -262,7 +261,7 @@ modelscope download jzx-ai-lab/HydraVox --local_dir jzx-ai-lab/HydraVox
 
 ---
 
-## 🛠️ 训练与微调
+## Train & Finetune
 
 ### 使用 WebUI 进行数据预处理（Data Process）
 
@@ -314,7 +313,7 @@ modelscope download jzx-ai-lab/HydraVox --local_dir jzx-ai-lab/HydraVox
 
 ---
 
-## 📜 许可证
+## License
 
 - 代码：**Apache‑2.0**（示例 — 请按实际许可更新）。
 - **源自 CosyVoice** — 参见 `NOTICE` 与 `LICENSE-THIRD-PARTY`。

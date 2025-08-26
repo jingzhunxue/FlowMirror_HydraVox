@@ -20,8 +20,7 @@
   <a href="#python-api">Python API</a> •
   <a href="#models--weights">Models</a> •
   <a href="#train--finetune">Train</a> •
-  <a href="#-architecture">Architecture</a> •
-  <a href="#-license">License</a>
+  <a href="#license">License</a>
 </p>
 
 <p align="center">
