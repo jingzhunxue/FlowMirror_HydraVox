@@ -75,7 +75,7 @@ def create_main_ui():
                 HydraVox TTS System
             </h1>
             <p style="color: #7f8c8d; font-size: 18px;">
-                多Token预测的端到端语音合成系统
+                支持多Token预测的语音合成系统
             </p>
         </div>
         """)
