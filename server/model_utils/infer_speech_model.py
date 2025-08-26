@@ -165,7 +165,11 @@ class ModelManager:
         """加载模型权重"""
         try:
             self.models['llm'].load_state_dict(torch.load(llm_pt, map_location='cpu'))
+            self.models['llm'].eval().cuda().to(torch.bfloat16)
+            self.models['llm'].bf16 = True
             self.models['flow'].load_state_dict(torch.load(flow_pt, map_location='cpu'))
+            self.models['flow'].eval().cuda().half()
+            self.models['flow'].fp16 = True
             logger.info("模型权重加载完成")
             return {"status": "success", "message": "模型权重加载完成"}
         except Exception as e:

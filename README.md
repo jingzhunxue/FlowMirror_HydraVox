@@ -72,6 +72,9 @@ pip install -r requirements.txt
 
 # 3) Download model weights
 modelscope download jzx-ai-lab/HydraVox --local_dir jzx-ai-lab/HydraVox
+
+# 4) Create .env
+cp .env.example .env
 ```
 
 ---

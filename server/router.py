@@ -240,7 +240,7 @@ async def text_to_speech(request: Request, task: TTSRequest):
         tts_task_queue.put(tasks)
 
         start_time = time.time()
-        timeout = 10
+        timeout = 60
         while True:
             # 如果 Worker 已经把结果写入 result_dict
             if task_id in tts_result_dict:
