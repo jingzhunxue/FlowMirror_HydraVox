@@ -30,7 +30,19 @@ def scan_reference_samples() -> Dict[str, Dict[str, Path]]:
             if not work_dir.is_dir():
                 continue
             
-            # 遍历每个作品下的角色文件夹
+            # 首先检查作品文件夹下是否直接有音频文件（单层结构）
+            for wav_file in work_dir.glob("*.wav"):
+                txt_file = wav_file.with_suffix(".txt")
+                if txt_file.exists():
+                    # 生成显示名称：作品名/文件名
+                    display_name = f"{work_dir.name}/{wav_file.stem}"
+                    samples[display_name] = {
+                        "audio": wav_file,
+                        "text": txt_file
+                    }
+                    logger.debug(f"Found sample: {display_name}")
+            
+            # 然后遍历每个作品下的角色文件夹（两层结构）
             for character_dir in work_dir.iterdir():
                 if not character_dir.is_dir():
                     continue
@@ -320,11 +332,17 @@ def toggle_synthesis_mode(mode: str):
             gr.update(visible=False),  # reference_preset
         )
     elif mode == "Zero-shot":
-        # 加载默认参考音频
-        default_audio, default_text = load_default_reference_audio()
-        # 获取默认选项
+        # 获取样本列表
         sample_names = list(REFERENCE_SAMPLES.keys())
-        default_sample = sample_names[0] if sample_names else None
+        
+        # 如果有样本可用，加载第一个样本
+        if sample_names:
+            default_sample = sample_names[0]
+            default_audio, default_text = load_reference_sample(default_sample)
+        else:
+            # 如果没有样本，加载默认音频
+            default_sample = None
+            default_audio, default_text = load_default_reference_audio()
         
         return (
             gr.update(visible=False),  # speaker_row
