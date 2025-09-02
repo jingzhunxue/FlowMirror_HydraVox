@@ -176,133 +176,80 @@ def parse_text_with_pinyin(text: str) -> Tuple[List[str], List[str]]:
     segments = []
     types = []
     
-    # 用于处理括号嵌套的栈
-    bracket_stack = []
-    current_text = ""
-    in_bracket = False
-    bracket_content = ""
     i = 0
+    current_text = ""
     
     while i < len(text):
         char = text[i]
         
+        # 检测到左括号
         if char == '(' or char == '（':
-            if not in_bracket:
-                # 进入括号
-                if current_text:
-                    segments.append(current_text)
-                    types.append(ContentType.TEXT.value)
-                    current_text = ""
-                in_bracket = True
-                bracket_stack.append(i)
-            else:
-                # 嵌套括号
-                bracket_content += char
-                bracket_stack.append(i)
-            i += 1
+            # 先保存括号前的文本
+            if current_text:
+                segments.append(current_text)
+                types.append(ContentType.TEXT.value)
+                current_text = ""
             
-        elif char == ')' or char == '）':
-            if bracket_stack:
-                bracket_stack.pop()
-                if not bracket_stack:
-                    # 最外层括号结束
-                    if bracket_content:
-                        # 判断括号内容类型，优先级：音标 > 英文 > 拼音 > 普通文本
+            # 找到对应的右括号，使用括号匹配计数
+            bracket_depth = 1
+            j = i + 1
+            while j < len(text) and bracket_depth > 0:
+                if text[j] == '(' or text[j] == '（':
+                    bracket_depth += 1
+                elif text[j] == ')' or text[j] == '）':
+                    bracket_depth -= 1
+                j += 1
+            
+            # 检查是否找到了匹配的右括号
+            if bracket_depth == 0:
+                # 提取括号内的内容（不包括最外层括号）
+                bracket_content = text[i+1:j-1]
+                
+                if bracket_content:
+                    # 检查是否有嵌套括号
+                    has_nested = '(' in bracket_content or '（' in bracket_content
+                    
+                    if has_nested:
+                        # 如果有嵌套括号，递归处理内容
+                        nested_segments, nested_types = parse_text_with_pinyin(bracket_content)
+                        # 将递归处理的结果合并
+                        segments.extend(nested_segments)
+                        types.extend(nested_types)
+                    else:
+                        # 没有嵌套括号，判断内容类型
+                        # 优先级：音标 > 拼音 > 英文 > 普通文本
                         if is_phonetic(bracket_content):
                             segments.append(bracket_content)
                             types.append(ContentType.PHONETIC.value)
+                        elif is_pinyin(bracket_content):
+                            segments.append(bracket_content) 
+                            types.append(ContentType.PINYIN.value)
                         elif is_english(bracket_content):
                             # 英文内容作为普通文本处理
                             segments.append(bracket_content)
                             types.append(ContentType.TEXT.value)
-                        elif is_pinyin(bracket_content):
-                            segments.append(bracket_content)
-                            types.append(ContentType.PINYIN.value)
                         else:
-                            # 其他内容，作为文本处理
+                            # 其他内容作为文本处理
                             segments.append(bracket_content)
                             types.append(ContentType.TEXT.value)
-                        bracket_content = ""
-                    in_bracket = False
-                else:
-                    # 还在嵌套括号中
-                    bracket_content += char
+                
+                # 移动索引到右括号之后
+                i = j
             else:
-                # 没有匹配的左括号，当作普通文本
-                if in_bracket:
-                    bracket_content += char
-                else:
-                    current_text += char
-            i += 1
-            
-        else:
-            if in_bracket:
-                bracket_content += char
-            else:
+                # 没有找到匹配的右括号，将左括号作为普通文本
                 current_text += char
+                i += 1
+        else:
+            # 普通字符，加入当前文本
+            current_text += char
             i += 1
     
-    # 处理剩余内容
+    # 处理剩余的文本
     if current_text:
         segments.append(current_text)
         types.append(ContentType.TEXT.value)
-    if bracket_content and in_bracket:
-        # 未闭合的括号内容，当作普通文本
-        segments.append(bracket_content)
-        types.append(ContentType.TEXT.value)
     
     return segments, types
-
-
-class PinyinProcessor:
-    """拼音处理器类，提供更高级的功能"""
-    
-    def __init__(self):
-        self.segments = []
-        self.types = []
-    
-    def parse(self, text: str) -> 'PinyinProcessor':
-        """解析文本"""
-        self.segments, self.types = parse_text_with_pinyin(text)
-        return self
-    
-    def get_segments(self) -> List[str]:
-        """获取所有片段"""
-        return self.segments
-    
-    def get_types(self) -> List[str]:
-        """获取所有类型"""
-        return self.types
-    
-    def get_by_type(self, content_type: ContentType) -> List[Tuple[int, str]]:
-        """获取指定类型的片段及其索引"""
-        result = []
-        for i, (seg, typ) in enumerate(zip(self.segments, self.types)):
-            if typ == content_type.value:
-                result.append((i, seg))
-        return result
-    
-    def get_text_only(self) -> str:
-        """只获取文本部分（不包括拼音和音标）"""
-        return ''.join(seg for seg, typ in zip(self.segments, self.types) 
-                      if typ == ContentType.TEXT.value)
-    
-    def get_pinyin_only(self) -> List[str]:
-        """只获取拼音部分"""
-        return [seg for seg, typ in zip(self.segments, self.types) 
-                if typ == ContentType.PINYIN.value]
-    
-    def get_phonetic_only(self) -> List[str]:
-        """只获取音标部分"""
-        return [seg for seg, typ in zip(self.segments, self.types) 
-                if typ == ContentType.PHONETIC.value]
-    
-    def format_output(self, separator: str = " | ") -> str:
-        """格式化输出，便于查看"""
-        output_lines = []
-        for seg, typ in zip(self.segments, self.types):
-            output_lines.append(f"[{typ}]: {seg}")
-        return separator.join(output_lines)
 
 
 # 便捷函数
@@ -319,6 +266,85 @@ def process_pinyin_text(text: str) -> Tuple[List[str], List[str]]:
     return parse_text_with_pinyin(text)
 
 
+def get_segments_by_type(segments: List[str], types: List[str], content_type: str) -> List[Tuple[int, str]]:
+    """
+    获取指定类型的片段及其索引
+    
+    Args:
+        segments: 分离的文字片段列表
+        types: 对应的类型标记列表
+        content_type: 要筛选的内容类型 ("text", "pinyin", "phonetic")
+    
+    Returns:
+        List[Tuple[int, str]]: 符合条件的片段及其索引
+    """
+    result = []
+    for i, (seg, typ) in enumerate(zip(segments, types)):
+        if typ == content_type:
+            result.append((i, seg))
+    return result
+
+
+def get_text_only(segments: List[str], types: List[str]) -> str:
+    """
+    只获取文本部分（不包括拼音和音标）
+    
+    Args:
+        segments: 分离的文字片段列表
+        types: 对应的类型标记列表
+    
+    Returns:
+        str: 拼接后的纯文本内容
+    """
+    return ''.join(seg for seg, typ in zip(segments, types) if typ == ContentType.TEXT.value)
+
+
+def get_pinyin_only(segments: List[str], types: List[str]) -> List[str]:
+    """
+    只获取拼音部分
+    
+    Args:
+        segments: 分离的文字片段列表
+        types: 对应的类型标记列表
+    
+    Returns:
+        List[str]: 拼音片段列表
+    """
+    return [seg for seg, typ in zip(segments, types) if typ == ContentType.PINYIN.value]
+
+
+def get_phonetic_only(segments: List[str], types: List[str]) -> List[str]:
+    """
+    只获取音标部分
+    
+    Args:
+        segments: 分离的文字片段列表
+        types: 对应的类型标记列表
+    
+    Returns:
+        List[str]: 音标片段列表
+    """
+    return [seg for seg, typ in zip(segments, types) if typ == ContentType.PHONETIC.value]
+
+
+def format_segments(segments: List[str], types: List[str], separator: str = " | ") -> str:
+    """
+    格式化输出，便于查看
+    
+    Args:
+        segments: 分离的文字片段列表
+        types: 对应的类型标记列表
+        separator: 分隔符
+    
+    Returns:
+        str: 格式化的字符串
+    """
+    output_lines = []
+    for seg, typ in zip(segments, types):
+        output_lines.append(f"[{typ}]: {seg}")
+    return separator.join(output_lines)
+
+
 if __name__ == "__main__":
     # 测试用例
     test_text = """咱们(ke3)以结合正弦函数图象来算。正弦函数(y) 等于 (saɪn)t在t等于 (2分之派)时取到最大值1，
@@ -331,32 +357,25 @@ if __name__ == "__main__":
     print(test_text)
     print("=" * 80)
     
-    # 使用函数方式
-    print("\n使用函数方式处理：")
+    # 处理文本
+    print("\n处理结果：")
     segments, types = process_pinyin_text(test_text)
     
     print("\n分离结果：")
     for i, (seg, typ) in enumerate(zip(segments, types)):
         print(f"{i}: [{typ}] '{seg}'")
     
-    print("\n" + "=" * 80)
-    
-    # 使用类方式
-    print("\n使用类方式处理：")
-    processor = PinyinProcessor()
-    processor.parse(test_text)
-    
     print("\n格式化输出：")
-    print(processor.format_output("\n"))
+    print(format_segments(segments, types, "\n"))
     
     print("\n只获取拼音：")
-    print(processor.get_pinyin_only())
+    print(get_pinyin_only(segments, types))
     
     print("\n只获取音标：")
-    print(processor.get_phonetic_only())
+    print(get_phonetic_only(segments, types))
     
     print("\n只获取文本（去除拼音和音标）：")
-    print(processor.get_text_only())
+    print(get_text_only(segments, types))
     
     # 更多测试用例
     print("\n" + "=" * 80)
@@ -368,6 +387,8 @@ if __name__ == "__main__":
         "音标测试(θɪs)和(ðæt)",
         "嵌套测试((内层))外层",
         "混合(wo3)测试(test)内容(kənˈtent)",
+        "简单(abc)测试",
+        "数学公式f(x)=sin(x)",
     ]
     
     for test in test_cases:
@@ -375,3 +396,14 @@ if __name__ == "__main__":
         segs, typs = process_pinyin_text(test)
         for seg, typ in zip(segs, typs):
             print(f"  [{typ}]: {seg}")
+        
+        # 演示各种提取功能
+        pinyin_list = get_pinyin_only(segs, typs)
+        phonetic_list = get_phonetic_only(segs, typs)
+        text_only = get_text_only(segs, typs)
+        
+        if pinyin_list:
+            print(f"  拼音: {pinyin_list}")
+        if phonetic_list:
+            print(f"  音标: {phonetic_list}")
+        print(f"  纯文本: '{text_only}'")
