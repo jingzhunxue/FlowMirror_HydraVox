@@ -1,0 +1,476 @@
+sin	sine
+cos	cosine
+tan	tangent
+!	阶乘
+""""	双引号
+'	单引号
+(	
+)	
+·	点乘
+*	乘以
++	加
+-	减
+.	.
+/	除以
+:	比
+<	小于
+=	等于
+>	大于
+[	左中括
+]	右中括
+column	列
+empty	空白
+has	有
+item	项
+main	主符号
+math	数学
+mmultiscripts:mprescripts	左右分隔定点
+mmultiscripts:order	第
+mmultiscripts:post-subscript	右下标
+mmultiscripts:post-superscript	右上标
+mmultiscripts:pre-subscript	左下标
+mmultiscripts:pre-superscript	左上标
+none	空
+notation:Arabic factorial symbol	阿拉伯阶乘符号
+notation:actuarial symbol	精算符号
+notation:box	方盒子
+notation:circle	圆圈
+notation:diagonal arrow	对角箭头
+notation:down diagonal cross out	下对角线横跨
+notation:horizontal cross out	水平横跨
+notation:line on bottom	底线
+notation:line on left	左线
+notation:line on right	右线
+notation:line on top	顶线
+notation:long division symbol	长除法符号
+notation:phasor angle	相角
+notation:radical	根号
+notation:round box	圆盒字
+notation:up diagonal cross out	上对角线横跨
+notation:vertical cross out	垂直横跨
+row	行
+{	
+|	竖线
+}	
+¯	横线
+±	加减
+×	乘以
+÷	除以
+̸	不
+Ͱ	Heta
+ͱ	Heta
+Ͳ	Archaic Sampi
+ͳ	Archaic Sampi
+ʹ	Numeral Sign
+͵	Lower Numeral Sign
+Ͷ	Pamphylian Digamma
+ͷ	Pamphylian Digamma
+ͺ	Ypogegrammeni
+ͻ	Reversed Lunate Sigma
+ͼ	Dotted Lunate Sigma
+ͽ	Reversed Dotted Lunate Sigma
+;	Question Mark
+Ϳ	Yot
+΄	Tonos
+΅	Dialytika Tonos
+Ά	Alpha with Tonos
+·	Ano Teleia
+Έ	Epsilon with Tonos
+Ή	Eta with Tonos
+Ί	Iota with Tonos
+Ό	Omicron with Tonos
+Ύ	Upsilon with Tonos
+Ώ	Omega with Tonos
+ΐ	Iota with Dialytika and Tonos
+Α	Alpha
+Β	Beta
+Γ	Gamma
+Δ	Delta
+Ε	Epsilon
+Ζ	Zeta
+Η	Eta
+Θ	Theta
+Ι	Lota
+Κ	Kappa
+Λ	Lamda
+Μ	Mu
+Ν	Nu
+Ξ	Xi
+Ο	Omicron
+Π	Pi
+Ρ	Rho
+Σ	Sigma
+Τ	Tau
+Υ	Upsilon
+Φ	Phi
+Χ	Chi
+Ψ	Psi
+Ω	Omega
+Ϊ	Iota with Dialytika
+Ϋ	Upsilon with Dialytika
+ά	Alpha with Tonos
+έ	Epsilon with Tonos
+ή	Eta with Tonos
+ί	Iota with Tonos
+ΰ	Upsilon with Dialytika and Tonos
+α	Alpha
+β	Beta
+γ	Gamma
+δ	Delta
+ε	Epsilon
+ζ	Zeta
+η	Eta
+θ	Theta
+ι	Lota
+κ	Kappa
+λ	Lamda
+μ	Mu
+ν	Nu
+ξ	Xi
+ο	Omicron
+π	Pi
+ρ	Rho
+ς	Final Sigma
+σ	Sigma
+τ	Tau
+υ	Upsilon
+φ	Phi
+χ	Chi
+ψ	Psi
+ω	Omega
+ϊ	Iota with Dialytika
+ϋ	Upsilon with Dialytika
+ό	Omicron with Tonos
+ύ	Upsilon with Tonos
+ώ	Omega with Tonos
+Ϗ	Kai
+ϐ	Beta
+ϑ	Theta
+ϒ	Upsilon with Hook
+ϓ	Upsilon with Acute and Hook
+ϔ	Upsilon with Diaeresis and Hook
+ϕ	Phi
+ϖ	Pi
+ϗ	Kai
+Ϙ	Koppa
+ϙ	Koppa
+Ϛ	Stigma
+ϛ	Stigma
+Ϝ	Diggmma
+ϝ	Diggmma
+Ϟ	Koppa
+ϟ	Koppa
+Ϡ	Sampi
+ϡ	Sampi
+Ϣ	Shei
+ϣ	Shei
+Ϥ	Fei
+ϥ	Fei
+Ϧ	Khei
+ϧ	Khei
+Ϩ	Hori
+ϩ	Hori
+Ϫ	Gangia
+ϫ	Gangia
+Ϭ	Shima
+ϭ	Shima
+Ϯ	Dei
+ϯ	Dei
+ϰ	Kappa
+ϱ	Rho
+ϲ	Lunate Sigma
+ϳ	Yot
+ϴ	Theta
+ϵ	Lunate Epsilon
+϶	Reversed Lunate Epsilon
+Ϸ	Sho
+ϸ	Sho
+Ϲ	Lunate Sigma
+Ϻ	San
+ϻ	San
+ϼ	Rho with Stroke
+Ͻ	Reversed Lunate Sigma
+Ͼ	Dotted Lunate Sigma
+Ͽ	Reversed Dotted Lunate Sigma
+•	圆点
+′	prime
+″	double prime
+‴	triple prime
+→	右箭頭
+↔	左右雙向箭頭
+⇀	向量
+∀	对任意的
+∁	补集
+∂	偏微分
+∃	存在
+∄	不存在
+∅	空集
+∆	变化量
+∇	向量微分
+∈	属于
+∉	不属于
+∊	属于
+∋	包含
+∌	不包含
+∍	小型包含
+∎	结束证明
+∏	N元乘积
+∐	N元余积
+∑	累加
+−	减
+∓	正负号
+∔	点正号
+∕	正斜线
+∖	反斜线
+∗	星号运算符
+∘	合成
+∙	点
+√	开根号
+⎷	开根号
+∛	开立方根
+∜	开四次根
+∝	正比于
+∞	无穷大
+∟	直角
+∠	角
+∡	测量角
+∢	球面角
+∣	除
+∤	不除
+∥	平行
+∦	不平行
+∧	逻辑与
+∨	逻辑或
+∩	交集
+∪	并集
+∫	积分
+∬	双重积分
+∭	三重积分
+∮	围道积分
+∯	曲面积分
+∰	体积积分
+∱	顺时针积分
+∲	顺时针围道积分
+∳	逆时针围道积分
+∴	所以
+∵	因为
+∶	比
+∷	比例
+∸	点负号
+∹	超出
+∺	几何比例
+∻	同位
+∼	波浪符
+∽	反波浪符
+∾	竖翻躺倒S
+∿	正弦波型
+≀	环积
+≁	不波浪符
+≂	负号波浪符
+≃	渐近等于
+≄	不渐近等于
+≅	近似等于
+≆	近似但不真实等于
+≇	不近似但不真实等于
+≈	约等于
+≉	不约等于
+≊	约等于或等于
+≋	三重波浪符
+≌	全等于
+≍	等价于
+≎	几何等价于
+≏	相差
+≐	接近极限
+≑	几何等于
+≒	近似于或像
+≓	像或近似于
+≔	冒号等号
+≕	等号冒号
+≖	圆圈在等于中
+≗	圆圈等于
+≘	对应
+≙	估计
+≚	等角于
+≛	星等号
+≜	delta等于
+≝	按定义等于
+≞	按测量
+≟	问号等于
+≠	不等于
+≡	恒等于
+≢	不恒等于
+≣	完全等于
+≤	小于或等于
+≥	大于或等于
+≦	小于等于
+≧	大于等于
+≨	小于但不等于
+≩	大于但不等于
+≪	远小于
+≫	远大于
+≬	介于
+≭	不等价于
+≮	不少于
+≯	不大于
+≰	不少于或等于
+≱	不大于或等于
+≲	小于或等价于
+≳	大于或等价于
+≴	不小于也不等价于
+≵	不大于也不等价于
+≶	小于或大于
+≷	大于或小于
+≸	不小于也不大于
+≹	不大于也不小于
+≺	先于
+≻	后于
+≼	先于或等于
+≽	后于或等于
+≾	先于或等价于
+≿	后于或等价于
+⊀	不先于
+⊁	不后于
+⊂	子集
+⊃	超集
+⊄	非子集
+⊅	非超集
+⊆	子集或等于
+⊇	超集或等于
+⊈	非子集也不等于
+⊉	非超集也不等于
+⊊	子集也不等于
+⊋	超集也不等于
+⊌	多重集
+⊍	多重集乘积
+⊎	多重集连集
+⊏	方形像
+⊐	方形原
+⊑	方形像或等于
+⊒	方形原或等于
+⊓	方形帽
+⊔	方形杯
+⊕	带圆圈正号
+⊖	带圆圈负号
+⊗	带圆圈乘号
+⊘	带圆圈除号斜线号
+⊙	圆
+⊚	带圆圈圆圈运算符
+⊛	带圆圈星号运算符
+⊜	带圆圈点等号
+⊝	带圆圈点长划
+⊞	带圆圈点正号
+⊟	带圆圈点负号
+⊠	带圆圈点乘号
+⊡	带方框点运算符
+⊢	右丁字
+⊣	左丁字
+⊤	下丁字
+⊥	垂直于
+⟂	垂直于
+⊦	断定
+⊧	模型
+⊨	真
+⊩	强制
+⊪	三竖条右转门
+⊫	二竖条右转门
+⊬	不证明
+⊭	不真
+⊮	不强制
+⊯	不二竖条右转门
+⊰	先于下关系
+⊱	超于下关系
+⊲	正规子群
+⊳	属于正规子群
+⊴	正规子群或等于
+⊵	属于正规子群或等于
+⊶	原
+⊷	像
+⊸	多重映像
+⊹	厄密共轭矩阵
+⊺	插入
+⊻	异或
+⊼	与非
+⊽	或非
+⊾	带有弧的右角
+⊿	右三角形
+△	三角形
+⋀	N元逻辑和
+⋁	N元逻辑或
+⋂	N元交集
+⋃	N元连集
+⋄	菱形运算符
+⋅	点运算符
+⋆	星号运算符
+⋇	乘除号
+⋈	蝴蝶结
+⋉	左正规因子半直积
+⋊	右正规因子半直积
+⋋	左半直积
+⋌	右半直积
+⋍	横翻颚化符等号
+⋎	波形逻辑或
+⋏	波形逻辑和
+⋐	双子集
+⋑	双超集
+⋒	双交集
+⋓	双连集
+⋔	草耙
+⋕	等于和平行
+⋖	带点小于
+⋗	带点大于
+⋘	极小于
+⋙	极大于
+⋚	小于等于或大于
+⋛	大于等于或小于
+⋜	等于或小于
+⋝	等于或大于
+⋞	等于或先于
+⋟	等于或超于
+⋠	不先于或等于
+⋡	不先于或超于
+⋢	不方形像或等于
+⋣	不方形原或等于
+⋤	方形像或不等于
+⋥	方形原或不等于
+⋦	小于但不等价于
+⋧	大于但不等价于
+⋨	先于但不等价于
+⋩	超于但不等价于
+⋪	不正规子群
+⋫	不属于正规子群
+⋬	不正规子群或等于
+⋭	不属于正规子群或等于
+⋮	竖省略号
+⋯	中线水平省略号
+⋰	上右省略号
+⋱	下右省略号
+⋲	有长划水平划的元素
+⋳	在水平划末尾有竖条的元素
+⋴	在水平划末尾有竖条的小型元素
+⋵	上面带点的元素
+⋶	有顶线的元素
+⋷	有顶线的小型元素
+⋸	有底线的元素
+⋹	有两个水平划的元素
+⋺	包含有长水平划
+⋻	在水平划末尾包含有竖条
+⋼	在水平划末尾小型包含有竖条
+⋽	包含有顶线
+⋾	小型包含有顶线
+⋿	Z 符号包成员
+⌈	左上取整
+⌉	右上取整
+⌊	左下取整
+⌋	右下取整
+⌢	弧
+⧵	差集
+⫋	真包含于
+⫌	真包含
+＋	加号
+－	減号
+＜	小于
+＝	等于
+＞	大于
+ℝ	集合R
+ℤ	集合Z
+°	度

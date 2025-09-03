@@ -1,0 +1,49 @@
+name	rule	role	description
+AddIntegerFractionType	artı, 0, bölü, 1, 	pay, payda	add integer fraction
+CubePowerType	, 0, küp	taban, üs	cube power
+FrownType	frown, 0, 	main, super	frown
+LineSegmentType	, 0, doğru parçası	main, super	line segment
+LineType	, 0, doğrusu	main, super	line
+NegativeSignType	negatif	negatif	negative sign
+PositiveSignType	positif	positif	positive sign
+RayType	, 0, ışını	main, super	ray
+SingleMover	, 0, above, 1, 	main, above	single overscript
+SingleMsub	, 0, indis, 1, 	taban, indis	single subscript
+SingleMsubsup	, 0, indis, 1, , üzeri, 2, , 	taban, indis, üs	single subscript and supscript
+SingleMsup	, 0, üstindis, 1, 	taban, üstindis	single supscript
+SingleMunder	, 0, altında, 1, ile, 	taban, altında	single underscript
+SingleMunderover	, 0, altında, 1, ve, üstünde, 2, 	taban, altında, üstünde	single underscript and overscript
+SquarePowerType	, 0, kare	taban, üs	square power
+VectorDoubleType	, 0, vektörü	main, super	vector have two symbol
+VectorSingleType	, 0, vektörü	main, super	vector have one symbol
+absolute_value	mutlak değeri, (.), mutlak değer sonu	öğe	absolute value
+determinant	determinant, (.), determinant sonu	öğe	determinant
+from	operator, 0, from, 1, apply to	operator, from	from ... operator
+from_to	operator, 0, from, 1, to, 2, apply to	operator, from, to	from ... to ... operator
+math	, (.), 	öğe	math
+matrix	matris, (.), matris sonu	öğe	matrix
+mfenced	parantez aç, (.), kapa parantez	öğe	generics parentheses
+mfrac	Kesir pay , 0, payda, 1, kesir sonu	pay, payda	generics fraction
+mmultiscripts	left script, (.), end script	item	symbol have left mark
+mover	, 0, üstünde, 1, ile	taban, üstünde	symbol have overscript
+mroot	kök, 1, dereceden, 0, kök sonu	kök, sayı	root
+msqrt	karekök, (.), kök sonu	öğe	square root
+msub	, 0, indis, 1, indis sonu	taban, indis	symbol have subscript
+msubsup	, 0, indis, 1, , üzeri, 2, 	taban, indis, üs	symbol have subscript and supscript
+msup	, 0, üzeri, 1, 	taban, üs	symbol have supscript
+mtable	tablo, (satır.), tablo sonu	satır	2-dimension table
+mtd	, (.), 	öğe	table cell
+mtr	, (sütun.), 	sütun	table row
+munder	, 0, altında, 1, ile, 	taban, altında	symbol have underscript
+munderover	, 0, altında, 1, , ve, üstünde, 2, ile	taban, altında, üstünde	symbol have underscript and overscript
+node	, (.), 	öğe	node
+menclose	{start} enclosing, (.), end {end} enclosure	item	enclosure
+power	, 0, üzeri, 1, 	taban, üs	power
+SimultaneousEquations	simultaneous equations, (equation.), end of simultaneous equations	equation	simultaneous equations
+single_fraction	, , 0, bölü, 1, , 	pay, payda	single fraction
+single_square_root	kare kök, 0, 	kök içi	single square root
+to	operator, 0, to, 1, apply to	operator, to	to ... operator
+ArrowOverSingleSymbolType	vector, 0,	main,super	Arrow over a single symbol (vector in French notation)
+DegreeType	0, degree	main,super	degree
+LogType	log, 1, based	main,sub	log
+BinomialType	from, 0, item choice, 1, item	all,choice	binomial

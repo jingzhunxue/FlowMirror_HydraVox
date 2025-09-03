@@ -1,0 +1,52 @@
+name	mathml	order	category
+node	<math><mn>1</mn><mo>+</mo><mn>2</mn><mo>+</mo><mn>3</mn></math>	0	generics
+math	<math><mn>1</mn><mo>+</mo><mn>2</mn><mo>+</mo><mn>3</mn></math>	1	generics
+mfrac	<math><mrow><mfrac><mn>3</mn><mrow><mn>1</mn><mo>+</mo><mi>x</mi></mrow></mfrac></mrow></math>	2	fraction
+single_fraction	<math><mfrac><mi>3</mi><mi>4</mi></mfrac></math>	3	fraction
+AddIntegerFractionType	<math><mn>17</mn><mfrac><mn>2</mn><mn>5</mn></mfrac></math>	4	fraction
+BinomialType	<math><mo>(</mo><mfrac linethickness = "0"><mi>n</mi><mi>k</mi></mfrac><mo>)</mo></math>	5	fraction
+mfenced	<math><mfenced><mrow><mn>5</mn><mo>+</mo><mn>6</mn></mrow></mfenced></math>	6	fenced
+absolute_value	<math><mfenced open="|" close="|"><mrow><mo>-</mo><mn>2</mn></mrow></mfenced></math>	7	fenced
+determinant	<math><mfenced open="|" close="|"><mtable><mtr><mtd><mn>2</mn></mtd><mtd><mn>3</mn></mtd></mtr><mtr><mtd><mn>5</mn></mtd><mtd><mi>x</mi></mtd></mtr></mtable></mfenced></math>	8	fenced
+matrix	<math><mrow data-mjx-texclass="INNER"><mo data-mjx-texclass="OPEN">[</mo><mtable columnspacing="1em" rowspacing="4pt"><mtr><mtd><mrow data-mjx-texclass="ORD"><mi>a</mi></mrow></mtd><mtd><mrow data-mjx-texclass="ORD"><mi>b</mi></mrow></mtd></mtr><mtr><mtd><mrow data-mjx-texclass="ORD"><mi>c</mi></mrow></mtd><mtd><mrow data-mjx-texclass="ORD"><mi>d</mi></mrow></mtd></mtr></mtable><mo data-mjx-texclass="CLOSE">]</mo></mrow></math>	9	fenced
+SimultaneousEquations	<math></math>	10	fenced
+msqrt	<math><msqrt><mi>4</mi><mo>+</mo><mi>9</mi></msqrt></math>	11	root
+mroot	<math><mroot><mi>9</mi><mi>3</mi></mroot></math>	12	root
+single_square_root	<math><msqrt><mi>4</mi></msqrt></math>	13	root
+msubsup	<math><msubsup><mi>a</mi><mn>n</mn><mn>2</mn></msubsup><mo>+</mo><msubsup><mi>a</mi><mn>n+1</mn><mn>2</mn></msubsup></math>	14	position
+msup	<math><mrow><msup><mi>x</mi><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow></msup></mrow></math>	15	position
+msub	<math><msub><mi>a</mi><mrow><mi>n</mi><mo>+</mo><mn>1</mn></mrow></msub></math>	16	position
+munderover	<math><munderover><mi mathvariant="normal">&#x3C0;</mi><mrow><mi>x</mi><mo>=</mo><mn>0</mn></mrow><mi>N</mi></munderover></math>	17	position
+munder	<math><mrow><munder><mrow><mi>lim</mi></mrow><mrow><mi>x</mi><mo>&#x2192;</mo><mi>&#x221E;</mi></mrow></munder></mrow></math>	18	position
+mover	<math><mover><mrow><mi>A</mi><mo>+</mo><mi>B</mi></mrow><mo>&#xAF;</mo></mover></math>	19	position
+SingleMsubsup	<math><msubsup><mi>a</mi><mn>0</mn><mn>2</mn></msubsup><mo>+</mo><msubsup><mi>a</mi><mn>1</mn><mn>2</mn></msubsup></math>	20	position
+SingleMsub	<math><mrow><msub><mrow><mi>log</mi></mrow><mn>2</mn></msub><mn>10</mn></mrow></math>	21	position
+SingleMsup	<math><msup><mi>f</mi><mo>'</mo></msup></math>	22	position
+SingleMunderover	<math><munderover><mi>&#x391;</mi><mi>m</mi><mi>n</mi></munderover></math>	23	position
+SingleMunder	<math><munder><mi>lim</mi><mi>a</mi></munder></math>	24	position
+SingleMover	<math><mover><mi>A</mi><mo>&#xAF;</mo></mover></math>	25	position
+power	<math><msup><mn>3</mn><mn>5</mn></msup></math>	26	power
+SquarePowerType	<math><msup><mn>3</mn><mn>2</mn></msup></math>	27	power
+CubePowerType	<math><msup><mn>2</mn><mn>3</mn></msup></math>	28	power
+from_to	<math><msubsup><mo>&#x222B;</mo><mn>0</mn><mn>1</mn></msubsup><msqrt><mi>x</mi></msqrt></math>	29	from to
+from	<math><munder><mo>&#x2211;</mo><mi>N</mi></munder></math>	30	from to
+to	<math><mover><mo>&#x2211;</mo><mi>N</mi></mover></math>	31	from to
+mtable	<math><mtable><mtr><mtd><mi>x</mi><mo>+</mo><mi>y</mi></mtd><mtd><mo>=</mo></mtd><mtd><mn>1</mn></mtd></mtr><mtr><mtd><mi>x</mi><mo>+</mo><mn>2</mn><mi>y</mi></mtd><mtd><mo>=</mo></mtd><mtd><mn>4</mn></mtd></mtr></mtable></math>	32	table
+mtr	<math><mtable><mtr><mtd><mi>x</mi><mo>+</mo><mi>y</mi></mtd><mtd><mo>=</mo></mtd><mtd><mn>1</mn></mtd></mtr><mtr><mtd><mi>x</mi><mo>+</mo><mn>2</mn><mi>y</mi></mtd><mtd><mo>=</mo></mtd><mtd><mn>4</mn></mtd></mtr></mtable></math>	33	table
+mtd	<math><mtable><mtr><mtd><mi>x</mi><mo>+</mo><mi>y</mi></mtd><mtd><mo>=</mo></mtd><mtd><mn>1</mn></mtd></mtr><mtr><mtd><mi>x</mi><mo>+</mo><mn>2</mn><mi>y</mi></mtd><mtd><mo>=</mo></mtd><mtd><mn>4</mn></mtd></mtr></mtable></math>	34	table
+LineType	<math><mrow><mover accent='true'><mrow><mi>A</mi><mi>B</mi></mrow><mo stretchy='true'>&#x2194;</mo></mover></mrow></math>	35	line
+RayType	<math><mrow><mover accent='true'><mrow><mi>A</mi><mi>B</mi></mrow><mo stretchy='true'>&#x2192;</mo></mover></mrow></math>	36	line
+LineSegmentType	<math><mover><mrow><mi>A</mi><mi>B</mi></mrow><mo>&#xAF;</mo></mover></math>	37	line
+VectorSingleType	<math><mrow data-mjx-texclass="ORD"><mover><mi>A</mi><mo stretchy="false">→</mo></mover></mrow></math>	38	line
+VectorDoubleType	<math><mrow data-mjx-texclass="ORD"><mover><mrow><mi>A</mi><mi>B</mi></mrow><mo stretchy="false">→</mo></mover></mrow></math>	39	line
+ArrowOverSingleSymbolType	<math><mrow><mover accent='true'><mrow><mi>a</mi></mrow><mo stretchy='true'>&#x2192;</mo></mover></mrow></math>	40	line
+FrownType	<math><mrow><mover accent='true'><mrow><mi>A</mi><mi>B</mi></mrow><mo stretchy='true'>&#x2322;</mo></mover></mrow></math>	41	line
+DegreeType	<math ><msup ><mn>15</mn><mo>∘</mo></msup><mo>+</mo><msup ><mn>10</mn><mo>∘</mo></msup><mo>=</mo><msup ><mn>25</mn><mo>∘</mo></msup></math>	42	line
+NegativeSignType	<math><mo>-</mo><mn>2</mn></math>	43	other
+PositiveSignType	<math><mo>+</mo><mn>2</mn></math>	44	other
+mmultiscripts	<math><mmultiscripts><mi>T</mi><mprescripts/><mi>n</mi><mi>m</mi></mmultiscripts></math>	45	other
+menclose	<math></math>	46	other
+LogType	<math><msub><mi>log</mi><mn>10</mn></msub></math>	47	other
+ConcatenationMsub	<math><mrow><msub><mrow><mi>log</mi></mrow><mn>2</mn></msub><mn>10</mn></mrow></math>	48	position
+TriangleArea	<math><mrow><msub><mrow><mi>log</mi></mrow><mn>2</mn></msub><mn>10</mn></mrow></math>	49	position
+Percent	<percent><mn>70</mn><mi>%</mi></percent>	50	other

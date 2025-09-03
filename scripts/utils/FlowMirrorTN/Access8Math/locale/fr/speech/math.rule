@@ -1,0 +1,49 @@
+name	rule	role	description
+node	, (.),	élément	nœud
+mfrac	fraction avec numérateur, 0, et dénominateur, 1, fin fraction	numérateur,dénominateur	fraction générique
+mfenced	parenthèse gauche, ( .), parenthèse droite	élément	parenthèses génériques
+msqrt	racine carrée de, ( .), fin racine	élément	racine carrée
+mroot	la racine, 1, ième de, 0, fin racine	radicande,degré	racine n-ième
+math	, ( .),	élément	math
+msubsup	, 0, avec, 1, comme indice et, 2, comme exposant	principal,indice,exposant	symbole a indice et exposant
+msub	, 0, avec, 1, en indice	principal,indice	symbole a indice
+msup	, 0, avec, 1, en exposant	principal,exposant	symbole exposant
+munderover	, 0, avec, 1, souscrit, 2, suscrit	principal,souscrit,suscrit	symbole souscrit et suscrit
+munder	, 0, avec, 1, souscrit	principal,souscrit	symbole souscrit
+mover	, 0, avec, 1, suscrit	principal,suscrit	symbole suscrit
+mtable	tableau, (ligne.), fin tableau	ligne	tableau à 2 dimensions
+mtr	,(colonne.),	colonne	ligne de tableau
+mtd	,( .),	élément	cellule de tableau
+mmultiscripts	notation à gauche,(.),fin notation	élément	symbole avec notation à gauche
+menclose	{start} enclosing, (.), end {end} enclosure	item	enclosure
+from_to	opérateure, 0, de, 1, à, 2, appliqué à	opérateur,de,à	opérateur de ... à ...
+from	opérateur, 0, de, 1, appliqué à	opérateur,de	opérateur de ...
+to	opérateur, 0, à, 1, appliqué à	operateur,à	opérateur à ...
+power	, 0, puissance, 1	base,exposant	puissance
+absolute_value	valeur absolue de, (.), fin valeur absolue	élément	valeur absolue
+determinant	déterminant, ( .), fin déterminant	élément	déterminant
+matrix	matrix, ( .), end matrix	élément	matrice
+SimultaneousEquations	simultaneous equations, (equation.), end of simultaneous equations	equation	simultaneous equations
+single_fraction	0,sur,1	numérateur,dénominateur	fraction simple
+single_square_root	racine carrée de,0	radicande	racine carrée simple
+SingleMsubsup	, 0, sub, 1, puissance, 2, 	principal,indice,exposant	indice et exposant simple
+SingleMsub	, 0, sub, 1, 	principal,indice	indice simple
+SingleMsup	, 0, puissance, 1, 	principal,exposant	exposant simple
+SingleMunderover	, 0, souscrit, 1, suscrit, 2, 	principal,souscrit,suscrit	notation souscrite et suscrite simple
+SingleMunder	, 0, souscrit, 1, 	principal,souscrit	notation souscrite simple
+SingleMover	, 0, suscrit, 1, 	principal,suscrit	notation suscrite simple
+AddIntegerFractionType	plus,0,sur,1,	numérateur,dénominateur	ajout d'une fraction
+NegativeSignType	négatif,	moins	signe négatif
+PositiveSignType	positif,	plus	signe positif
+SquarePowerType	, 0, au carré	base,exposant	élévation au carré
+CubePowerType	, 0, au cube	base,exposant	élévation au cube
+LineType	droite, 0,	principal,suscrit	droite (notation anglo-saxonne)
+RayType	vecteur, 0,	principal,suscrit	vecteur avec deux symboles (notation française) = demi-droite (notation anglo-saxonne)
+LineSegmentType	mesure algébrique de, 0,	principal,suscrit	mesure algébrique (notation française) = segment (notation anglo-saxonne)
+VectorSingleType	vecteur, 0,	principal,suscrit	vecteur avec un symbole (notation anglo-saxonne)
+VectorDoubleType	vecteur, 0,	principal,suscrit	vecteur avec deux symboles (notation anglo-saxonne)
+ArrowOverSingleSymbolType	vecteur, 0,	main,super	Vecteur avec un symbole (notation française)
+FrownType	arc, 0,	principal,suscrit	arc
+DegreeType	0, degree	main,super	degree
+LogType	log, 1, based	main,sub	log
+BinomialType	from, 0, item choice, 1, item	all,choice	binomial

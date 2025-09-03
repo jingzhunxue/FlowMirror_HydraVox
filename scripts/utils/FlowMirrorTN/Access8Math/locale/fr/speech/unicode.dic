@@ -1,0 +1,347 @@
+﻿column	colonne
+has	a
+item	élément
+leftdownmark	indice bas gauche
+leftupmark	indice haut gauche
+main	principal
+math	math
+mprescripts_index	indice gauche
+order	ordre
+rightdownmark	indice bas droite
+rightupmark	indice haud droite
+row	ligne
+ͱ	hêta
+ͳ	sampi
+ʹ	signe numéral grec
+͵	signe numéral souscrit grec
+ͷ	Digamma
+ͺ	iota souscrit
+ͻ	sigma lunaire réfléchi
+ͼ	sigma lunaire pointé
+ͽ	sigma lunaire pointé réfléchi
+;	point d'interrogation grec
+Ϳ	yot
+΄	accent
+΅	tréma accent
+·	ano teleia
+ΐ	iota  tréma accent
+ά	alpha accent
+έ	epsilon accent
+ή	êta accent
+ί	iota accent
+ΰ	upsilon tréma accent
+α	alpha
+β	bêta
+γ	gamma
+δ	delta
+ε	epsilon
+ζ	zêta
+η	êta
+θ	thêta
+ι	iota
+κ	kappa
+λ	lambda
+μ	mu
+ν	nu
+ξ	ksi
+ο	omicron
+π	pi
+ρ	rhô
+ς	sigma
+σ	sigma
+τ	tau
+υ	upsilon
+φ	phi
+χ	khi
+ψ	psi
+ω	oméga
+ϊ	iota tréma
+ϋ	upsilon tréma
+ό	omicron accent
+ύ	upsilon accent
+ώ	oméga accent
+ϐ	bêta
+ϑ	thêta
+ϒ	upsilon crochet
+ϓ	upsilon accent crochet
+ϔ	upsilon tréma crochet
+ϕ	phi
+ϖ	pi
+ϗ	kai
+ϙ	koppa
+ϛ	stigma
+ϝ	Digamma
+ϟ	koppa
+ϡ	sampi
+ϣ	chaï
+ϥ	faï
+ϧ	khaï
+ϩ	hori
+ϫ	djanda
+ϭ	tchima
+ϯ	ti
+ϰ	kappa
+ϱ	rhô
+ϲ	sigma lunaire
+ϳ	yot
+ϵ	epsilon lunaire
+϶	epsilon lunaire réfléchi
+ϸ	sho
+ϻ	san
+ϼ	rhô barré
+∀	pour tout
+∁	complément
+∂	différencielle partielle
+∃	il existe
+∄	il n'existe pas de
+∅	ensemble vide
+∆	incrément
+∇	NABLA
+∈	élément de
+∉	pas un élément de
+∊	petit élément de
+∋	contient comme membre
+∌	ne contient pas comme membre
+∍	petit contient comme membre
+∎	fin de preuve
+∏	produit n-aire
+∐	coproduit de la famille
+∑	somme n-aire
+−	moins
+∓	signe moins-ou-plus
+∔	plus pointé
+∕	barre oblique de division
+∖	différence d'ensembles
+∗	opérateur astérisque
+∘	rond
+∙	opérateur puce
+√	racine carrée
+∛	racine cubique
+∜	racine quatrième
+∝	proportionnel à
+∞	infini
+∟	angle droit
+∠	angle
+∡	angle mesuré
+∢	angle sphérique
+∣	est un diviseur de
+∤	n'est pas un diviseur de
+∥	parallèle à
+∦	non parallèle à
+∧	et logique
+∨	ou logique
+∩	intersection
+∪	union
+∫	intégrale
+∬	intégrale double
+∭	intégrale triple
+∮	intégrale de contour
+∯	intégrale de surface
+∰	intégrale de volume
+∱	intégrale en sens négatif
+∲	intégrale de contour en sens négatif
+∳	intégrale de contour en sens positif
+∴	ainsi
+∵	parce que
+∶	RATIO
+∷	PROPORTION
+∸	moins pointé
+∹	excès
+∺	proportion géométrique
+∻	homothétique
+∼	opérateur tilde
+∽	opérateur tilde renversé
+∾	s couché renversé
+∿	sinusoïde
+≀	produit couronne
+≁	non tilde
+≂	moins tilde
+≃	asymptotiquement égal à
+≄	non asymptotiquement égal à
+≅	approximativement égal à
+≆	approximativement mais non strictement égal à
+≇	ni approximativement ni strictement égal à
+≈	environ égal à
+≉	non presque égal à
+≊	presque égal ou égal à
+≋	triple tilde
+≌	entièrement égal à
+≍	équivalent à
+≎	géométriquement équivalent à
+≏	différence entre
+≐	tend vers la limite
+≑	géométriquement égal à
+≒	approximativement égal à ou image de
+≓	image de ou approximativement égal à
+≔	deux-points égal
+≕	égal deux-points
+≖	rond dans égal
+≗	égal avec rond en chef
+≘	correspond à
+≙	estime
+≚	équiangulaire à
+≛	égal avec étoile en chef
+≜	égal delta
+≝	égal par définition à
+≞	mesuré par
+≟	égalité en doute
+≠	différent de
+≡	identique à
+≢	non identique à
+≣	strictement équivalent à
+≤	inférieur ou égal à
+≥	supérieur ou égal à
+≦	plus petit que par-dessus égal à
+≧	plus grand que par-dessus égal à
+≨	plus petit mais pas égal à
+≩	plus grand mais pas égal à
+≪	très inférieur à
+≫	très supérieur à
+≬	entre
+≭	non équivalent à
+≮	pas plus petit que
+≯	pas plus grand que
+≰	ni plus petit ni égal à
+≱	ni plus grand ni égal à
+≲	plus petit ou équivalent à
+≳	plus grand ou équivalent à
+≴	ni plus petit ni équivalent à
+≵	ni plus grand ni équivalent à
+≶	plus petit ou plus grand que
+≷	plus grand ou plus petit que
+≸	ni plus petit ni plus grand que
+≹	ni plus grand ni plus petit que
+≺	précède
+≻	suit
+≼	précède ou est égal à
+≽	suit ou est égal à
+≾	précède ou est équivalent à
+≿	suit ou est équivalent à
+⊀	ne précède pas
+⊁	ne suit pas
+⊂	sous-ensemble de
+⊃	sur ensemble de
+⊄	pas un sous-ensemble de
+⊅	pas un sur-ensemble de
+⊆	est inclus dans ou est égal à
+⊇	contient ou est égal à
+⊈	ni un sous-ensemble ni égal à
+⊉	ni un sur-ensemble ni égal à
+⊊	sous-ensemble mais pas égal à
+⊋	sur-ensemble mais pas égal à
+⊌	multiensemble
+⊍	multiplication de multiensemble
+⊎	union de multiensemble
+⊏	image carrée de
+⊐	original carré de
+⊑	image carrée ou égal à
+⊒	original carré ou égal à
+⊓	chapeau carré
+⊔	coupe carrée
+⊕	plus encerclé
+⊖	moins cerclé
+⊗	multiplié par cerclé
+⊘	barre oblique de division cerclée
+⊙	opérateur point cerclé
+⊚	opérateur rond cerclé
+⊛	opérateur astérisque cerclé
+⊜	égal cerclé
+⊝	tiret cerclé
+⊞	plus encadré
+⊟	moins encadré
+⊠	multiplié par encadré
+⊡	opérateur point encadré
+⊢	taquet droit
+⊣	taquet gauche
+⊤	taquet vers le bas
+⊥	perpendiculaire à
+⊦	assertion
+⊧	modélise
+⊨	vrai
+⊩	oblige
+⊪	barre verticale triple avec tourniquet à droite
+⊫	barre verticale double avec tourniquet à droite double
+⊬	ne prouve pas
+⊭	pas vrai
+⊮	n'oblige pas
+⊯	non-barre verticale double avec tourniquet à droite double
+⊰	précède sous relation
+⊱	suit sous relation
+⊲	sous-groupe normal de
+⊳	contient comme sous-groupe normal
+⊴	sous-groupe normal ou égal à
+⊵	contient comme sous-groupe normal ou égal à
+⊶	original de
+⊷	image de
+⊸	multijection
+⊹	matrice hermitienne conjuguée
+⊺	intercale
+⊻	ou exclusif
+⊼	non et
+⊽	non ou
+⊾	angle droit avec arc
+⊿	triangle rectangle
+⋀	grand et logique
+⋁	grand ou logique
+⋂	grande intersection
+⋃	grande union
+⋄	opérateur losange
+⋅	opérateur point
+⋆	opérateur étoile
+⋇	divisé multiplié
+⋈	nœud papillon
+⋉	produit semi-direct à gauche de facteur normal
+⋊	produit semi-direct à droite de facteur normal
+⋋	produit semi-direct à gauche
+⋌	produit semi-direct à droite
+⋍	moins tilde renversé
+⋎	ou logique recourbé
+⋏	et logique recourbé
+⋐	sous-ensemble double
+⋑	sur-ensemble double
+⋒	intersection double
+⋓	union double
+⋔	fourche
+⋕	égal et parallèle à
+⋖	plus petit que pointé
+⋗	plus grand que pointé
+⋘	considérablement plus petit que
+⋙	considérablement plus grand que
+⋚	plus petit ou égal ou plus grand que
+⋛	plus grand ou égal ou plus petit que
+⋜	égal ou plus petit que
+⋝	égal ou plus grand que
+⋞	égal ou précède
+⋟	égal ou suit
+⋠	ni précédant ni égal à
+⋡	ni suivant ni égal à
+⋢	ni image carrée ni égal à
+⋣	ni original carré ni égal à
+⋤	image carré ou différent de
+⋥	original carré ou différent de
+⋦	plus petit mais non équivalent à
+⋧	plus grand mais non équivalent à
+⋨	précédant mais non équivalent à
+⋩	suivant mais non équivalent à
+⋪	pas un sous-groupe normal de
+⋫	ne contient pas comme sous-groupe normal
+⋬	ni sous-groupe normal ni égal à
+⋭	ni égal ni contenant comme sous-groupe normal
+⋮	trois points suspendus
+⋯	trois points médians
+⋰	trois points diagonaux vers le coin haut à droite
+⋱	trois points diagonaux vers le coin bas à droite
+⋲	appartient à avec long trait horizontal
+⋳	appartient à avec barre verticale au bout du trait horizontal
+⋴	petit appartient à avec barre verticale au bout du trait horizontal
+⋵	appartient à avec point en chef
+⋶	appartient à avec trait en chef
+⋷	petit appartient à avec trait en chef
+⋸	appartient à avec trait souscrit
+⋹	appartient à avec deux traits horizontaux
+⋺	contient avec long trait horizontal
+⋻	contient avec barre verticale au bout du trait horizontal
+⋼	petit contient avec barre verticale au bout du trait horizontal
+⋽	contient avec trait en chef
+⋾	petit contient avec trait en chef
+⋿	appartient à un sac en notation z

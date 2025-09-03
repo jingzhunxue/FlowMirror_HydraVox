@@ -1,0 +1,442 @@
+﻿!	factorial
+'	prime
+(	open
+)	close
+*	times
++	plus
+-	minus
+/	divided by
+:	colon
+<	less than
+=	equals
+>	greater than
+[	左中括
+]	右中括
+column	column
+has	has
+item	item
+main	main
+math	math
+mmultiscripts:mprescripts	pre-scripts post-scripts point
+mmultiscripts:post-subscript	post-subscript
+mmultiscripts:post-superscript	post-superscript
+mmultiscripts:pre-subscript	pre-subscript
+mmultiscripts:pre-superscript	pre-superscript
+none	empty
+notation:Arabic factorial symbol	Arabic factorial symbol
+notation:actuarial symbol	actuarial symbol
+notation:box	box
+notation:circle	circle
+notation:diagonal arrow	diagonal arrow
+notation:down diagonal cross out	down diagonal cross out
+notation:horizontal cross out	horizontal cross out
+notation:line on bottom	line on bottom
+notation:line on left	line on left
+notation:line on right	line on right
+notation:line on top	line on top
+notation:long division symbol	long division symbol
+notation:phasor angle	phasor angle
+notation:radical	radical
+notation:round box	round box
+notation:up diagonal cross out	up diagonal cross out
+notation:vertical cross out	vertical cross out
+row	row
+{	open brace
+|	vertical line
+}	close brace
+¯	under bar
+±	plus or minus
+·	times
+×	times
+÷	divided by
+Ͱ	Heta
+ͱ	Heta
+Ͳ	Archaic Sampi
+ͳ	Archaic Sampi
+ʹ	Numeral Sign
+͵	Lower Numeral Sign
+Ͷ	Pamphylian Digamma
+ͷ	Pamphylian Digamma
+ͺ	Ypogegrammeni
+ͻ	Reversed Lunate Sigma
+ͼ	Dotted Lunate Sigma
+ͽ	Reversed Dotted Lunate Sigma
+;	Question Mark
+Ϳ	Yot
+΄	Tonos
+΅	Dialytika Tonos
+Ά	Alpha with Tonos
+·	Ano Teleia
+Έ	Epsilon with Tonos
+Ή	Eta with Tonos
+Ί	Iota with Tonos
+Ό	Omicron with Tonos
+Ύ	Upsilon with Tonos
+Ώ	Omega with Tonos
+ΐ	Iota with Dialytika and Tonos
+Α	Alpha
+Β	Beta
+Γ	Gamma
+Δ	Delta
+Ε	Epsilon
+Ζ	Zeta
+Η	Eta
+Θ	Theta
+Ι	Lota
+Κ	Kappa
+Λ	Lamda
+Μ	Mu
+Ν	Nu
+Ξ	Xi
+Ο	Omicron
+Π	Pi
+Ρ	Rho
+Σ	Sigma
+Τ	Tau
+Υ	Upsilon
+Φ	Phi
+Χ	Chi
+Ψ	Psi
+Ω	Omega
+Ϊ	Iota with Dialytika
+Ϋ	Upsilon with Dialytika
+ά	Alpha with Tonos
+έ	Epsilon with Tonos
+ή	Eta with Tonos
+ί	Iota with Tonos
+ΰ	Upsilon with Dialytika and Tonos
+α	Alpha
+β	Beta
+γ	Gamma
+δ	Delta
+ε	Epsilon
+ζ	Zeta
+η	Eta
+θ	Theta
+ι	Lota
+κ	Kappa
+λ	Lamda
+μ	Mu
+ν	Nu
+ξ	Xi
+ο	Omicron
+π	Pi
+ρ	Rho
+ς	Final Sigma
+σ	Sigma
+τ	Tau
+υ	Upsilon
+φ	Phi
+χ	Chi
+ψ	Psi
+ω	Omega
+ϊ	Iota with Dialytika
+ϋ	Upsilon with Dialytika
+ό	Omicron with Tonos
+ύ	Upsilon with Tonos
+ώ	Omega with Tonos
+Ϗ	Kai
+ϐ	Beta
+ϑ	Theta
+ϒ	Upsilon with Hook
+ϓ	Upsilon with Acute and Hook
+ϔ	Upsilon with Diaeresis and Hook
+ϕ	Phi
+ϖ	Pi
+ϗ	Kai
+Ϙ	Koppa
+ϙ	Koppa
+Ϛ	Stigma
+ϛ	Stigma
+Ϝ	Diggmma
+ϝ	Diggmma
+Ϟ	Koppa
+ϟ	Koppa
+Ϡ	Sampi
+ϡ	Sampi
+Ϣ	Shei
+ϣ	Shei
+Ϥ	Fei
+ϥ	Fei
+Ϧ	Khei
+ϧ	Khei
+Ϩ	Hori
+ϩ	Hori
+Ϫ	Gangia
+ϫ	Gangia
+Ϭ	Shima
+ϭ	Shima
+Ϯ	Dei
+ϯ	Dei
+ϰ	Kappa
+ϱ	Rho
+ϲ	Lunate Sigma
+ϳ	Yot
+ϴ	Theta
+ϵ	Lunate Epsilon
+϶	Reversed Lunate Epsilon
+Ϸ	Sho
+ϸ	Sho
+Ϲ	Lunate Sigma
+Ϻ	San
+ϻ	San
+ϼ	Rho with Stroke
+Ͻ	Reversed Lunate Sigma
+Ͼ	Dotted Lunate Sigma
+Ͽ	Reversed Dotted Lunate Sigma
+∀	for all
+∁	complement
+∂	partial differential
+∃	there exists
+∄	there does not exist
+∅	empty set
+∆	increment
+∇	nabla
+∈	element of
+∉	not an element of
+∊	small element of
+∋	contains as member
+∌	does not contain as member
+∍	small contains as member
+∎	end of proof
+∏	n-ary product
+∐	n-ary coproduct
+∑	n-ary summation
+−	minus sign
+∓	minus-or-plus sign
+∔	dot plus
+∕	division slash
+∖	set minus
+∗	asterisk operator
+∘	ring operator
+∙	bullet operator
+√	square root
+∛	cube root
+∜	fourth root
+∝	proportional to
+∞	infinity
+∟	right angle
+∠	angle
+∡	measured angle
+∢	spherical ang
+∣	divides
+∤	does not divide
+∥	parallel to
+∦	not parallel to
+∧	logical and
+∨	logical or
+∩	intersection
+∪	union
+∫	integral
+∬	double integral
+∭	triple integral
+∮	contour integral
+∯	surface integral
+∰	volume integral
+∱	clockwise integral
+∲	clockwise contour integral
+∳	anticlockwise contour integral
+∴	therefore
+∵	because
+∶	ratio
+∷	proportion
+∸	dot minus
+∹	excess
+∺	geometric proportion
+∻	homothetic
+∼	tilde operator
+∽	reversed tilde
+∾	inverted lazy s
+∿	sine wave
+≀	wreath product
+≁	not tilde
+≂	minus tilde
+≃	asymptotically equal to
+≄	not asymptotically equal to
+≅	approximately equal to
+≆	approximately but not actually equal to
+≇	neither approximately nor actually equal to
+≈	almost equal to
+≉	not almost equal to
+≊	almost equal or equal to
+≋	triple tilde
+≌	all equal to
+≍	equivalent to
+≎	geometrically equivalent to
+≏	difference between
+≐	approaches the limit
+≑	geometrically equal to
+≒	approximately equal to or the image of
+≓	image of or approximately equal to
+≔	colon equals
+≕	equals colon
+≖	ring in equal to
+≗	ring equal to
+≘	corresponds to
+≙	estimates
+≚	equiangular to
+≛	star equals
+≜	delta equal to
+≝	equal to by definition
+≞	measured by
+≟	questioned equal to
+≠	not equal to
+≡	identical to
+≢	not identical to
+≣	strictly equivalent to
+≤	less-than or equal to
+≥	greater-than or equal to
+≦	less-than over equal to
+≧	greater-than over equal to
+≨	less-than but not equal to
+≩	greater-than but not equal to
+≪	much less-than
+≫	much greater-than
+≬	between
+≭	not equivalent to
+≮	not less-than
+≯	not greater-than
+≰	neither less-than nor equal to
+≱	neither greater-than nor equal to
+≲	less-than or equivalent to
+≳	greater-than or equivalent to
+≴	neither less-than nor equivalent to
+≵	neither greater-than nor equivalent to
+≶	less-than or greater-than
+≷	greater-than or less-than
+≸	neither less-than nor greater-than
+≹	neither greater-than nor less-than
+≺	precedes
+≻	succeeds
+≼	precedes or equal to
+≽	succeeds or equal to
+≾	precedes or equivalent to
+≿	succeeds or equivalent to
+⊀	does not precede
+⊁	does not succeed
+⊂	subset of
+⊃	superset of
+⊄	not a subset of
+⊅	not a superset of
+⊆	subset of or equal to
+⊇	superset of or equal to
+⊈	neither a subset of nor equal to
+⊉	neither a superset of nor equal to
+⊊	subset of with not equal to
+⊋	superset of with not equal to
+⊌	multiset
+⊍	multiset multiplication
+⊎	multiset union
+⊏	square image of
+⊐	square original of
+⊑	square image of or equal to
+⊒	square original of or equal to
+⊓	square cap
+⊔	square cup
+⊕	circled plus
+⊖	circled minus
+⊗	circled times
+⊘	circled division slash
+⊙	circled dot operator
+⊚	circled ring operator
+⊛	circled asterisk operator
+⊜	circled equals
+⊝	circled dash
+⊞	squared plus
+⊟	squared minus
+⊠	squared times
+⊡	squared dot operator
+⊢	right tack
+⊣	left tack
+⊤	down tack
+⊥	up tack
+⊦	assertion
+⊧	models
+⊨	true
+⊩	forces
+⊪	triple vertical bar right turnstile
+⊫	double vertical bar double right turnstile
+⊬	does not prove
+⊭	not true
+⊮	does not force
+⊯	negated double vertical bar double right turnstile
+⊰	precedes under relation
+⊱	succeeds under relation
+⊲	normal subgroup of
+⊳	contains as normal subgroup
+⊴	normal subgroup of or equal to
+⊵	contains as normal subgroup or equal to
+⊶	original of
+⊷	image of
+⊸	multimap
+⊹	hermitian conjugate matrix
+⊺	intercalate
+⊻	xor
+⊼	nand
+⊽	nor
+⊾	right angle with arc
+⊿	right triangle
+⋀	n-ary logical and
+⋁	n-ary logical or
+⋂	n-ary intersection
+⋃	n-ary union
+⋄	diamond operator
+⋅	dot operator
+⋆	star operator
+⋇	division times
+⋈	bowtie
+⋉	left normal factor semidirect product
+⋊	right normal factor semidirect product
+⋋	left semidirect product
+⋌	right semidirect product
+⋍	reversed tilde equals
+⋎	curly logical or
+⋏	curly logical and
+⋐	double subset
+⋑	double superset
+⋒	double intersection
+⋓	double union
+⋔	pitchfork
+⋕	equal and parallel to
+⋖	less-than with dot
+⋗	greater-than with dot
+⋘	very much less-than
+⋙	very much greater-than
+⋚	less-than equal to or greater-than
+⋛	greater-than equal to or less-than
+⋜	equal to or less-than
+⋝	equal to or greater-than
+⋞	equal to or precedes
+⋟	equal to or succeeds
+⋠	does not precede or equal
+⋡	does not succeed or equal
+⋢	not square image of or equal to
+⋣	not square original of or equal to
+⋤	square image of or not equal to
+⋥	square original of or not equal to
+⋦	less-than but not equivalent to
+⋧	greater-than but not equivalent to
+⋨	precedes but not equivalent to
+⋩	succeeds but not equivalent to
+⋪	not normal subgroup of
+⋫	does not contain as normal subgroup
+⋬	not normal subgroup of or equal to
+⋭	does not contain as normal subgroup or equal
+⋮	vertical ellipsis
+⋯	midline horizontal ellipsis
+⋰	up right diagonal ellipsis
+⋱	down right diagonal ellipsis
+⋲	element of with long horizontal stroke
+⋳	element of with vertical bar at end of horizontal stroke
+⋴	small element of with vertical bar at end of horizontal stroke
+⋵	element of with dot above
+⋶	element of with overbar
+⋷	small element of with overbar
+⋸	element of with underbar
+⋹	element of with two horizontal strokes
+⋺	contains with long horizontal stroke
+⋻	contains with vertical bar at end of horizontal stroke
+⋼	small contains with vertical bar at end of horizontal stroke
+⋽	contains with overbar
+⋾	small contains with overbar
+⋿	z notation bag membership

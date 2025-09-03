@@ -1,0 +1,1933 @@
+## 基于分类添加特定位置的音标
+
+# 声母
+#"唇音系列(b/p/m/f/w)"
+# 如 bei3 北
+
+#"舌尖音系列(d/t/n/l/z/c/s)"
+# 如 ding1 丁
+
+#"舌面音系列(j/q/x/y)"
+# 如 jian1 间
+
+#"舌尖后音系列(zh/ch/sh/r)"
+# 如 zhang1 张
+
+#"拼音字典 - 零声母系列(a/o/e/i/u/ü)"
+# 如 ai4 爱
+
+# 韵母
+# "单韵母": ["a", "o", "e", "i", "u", "ü"],
+
+# "复韵母": 
+# "ai类": ["ai", "ei", "ui"],
+# "ao类": ["ao", "ou"],
+# "ia类": ["ia", "ua", "uo"],
+# "ie类": ["ie", "üe"],
+# "iu类": ["iu", "ui"],
+# "iao类": ["iao", "iou"],
+# "uai类": ["uai", "uei"]
+
+# "鼻韵母": 
+# "前鼻音": ["an", "en", "in", "un", "ün"],
+# "后鼻音": ["ang", "eng", "ing", "ong"],
+# "复合前鼻音": ["ian", "uan", "üan"],
+# "复合后鼻音": ["iang", "uang"],
+# "特殊后鼻音": ["iong"]
+
+
+# 拼音字典文件 - 唇音系列（修正版）
+# 格式：拼音 汉字
+# 注：选择读音唯一的常用字
+
+# b系列（双唇音）
+## 单元音
+ba1 八
+ba2 拔
+ba3 把
+ba4 爸
+bo1 波
+bo2 伯
+bo3 播
+bo4 博
+bi1 逼
+bi2 鼻
+bi3 比
+bi4 必
+bu1 补
+bu2 不
+bu3 步
+bu4 部
+
+## ai ei ao ou
+bai1 白
+bai2 百
+bai3 摆
+bai4 败
+bei1 杯
+bei2 贝
+bei3 北
+bei4 被
+bao1 包
+bao2 薄
+bao3 保
+bao4 报
+
+## ian iang
+bian1 边
+bian3 变
+bian4 便
+
+## iao
+biao1 标
+biao2 彪
+biao3 表
+biao4 裱
+
+## ie
+bie1 别
+bie2 憋
+bie3 瘪
+bie4 蹩
+
+## in ing
+bin1 宾
+bin4 鬓
+bing1 冰
+bing3 饼
+bing4 病
+
+## an ang
+ban1 班
+ban3 办
+ban4 版
+bang1 帮
+bang2 榜
+bang3 绑
+bang4 棒
+
+## en eng
+ben1 奔
+ben3 本
+ben4 笨
+beng1 崩
+beng2 绷
+beng3 蹦
+beng4 迸
+
+# p系列（双唇音）
+## 单元音
+pa1 趴
+pa2 拍
+pa3 怕
+pa4 帕
+po1 坡
+po2 婆
+po3 破
+po4 魄
+pi1 批
+pi2 皮
+pi3 匹
+pi4 僻
+pu1 扑
+pu2 普
+pu3 铺
+pu4 朴
+
+## ai ei ao ou
+pai1 拍
+pai2 排
+pai3 派
+pai4 牌
+pei1 胚
+pei2 培
+pei4 配
+pao1 抛
+pao2 炮
+pao3 跑
+pao4 泡
+pou1 剖
+pou2 掊
+pou3 抔
+pou4 裒
+
+## ian iang
+pian1 片
+pian2 偏
+pian4 骗
+
+## iao
+piao1 飘
+piao2 漂
+piao3 瓢
+piao4 票
+
+## ie
+pie1 撇
+pie3 瞥
+pie4 苤
+
+## in ing
+pin1 拼
+pin2 贫
+pin3 品
+pin4 聘
+ping1 乒
+ping2 平
+ping3 凭
+ping4 评
+
+## an ang
+pan1 潘
+pan2 盘
+pan4 判
+pang1 乓
+pang2 旁
+pang3 胖
+pang4 袍
+
+## en eng
+pen1 喷
+pen2 盆
+pen4 喷
+peng1 砰
+peng2 朋
+peng3 捧
+peng4 碰
+
+# m系列（双唇音）
+## 单元音
+ma1 妈
+ma2 麻
+ma3 马
+ma4 骂
+mo1 摸
+mo2 模
+mo3 抹
+mo4 莫
+mi1 咪
+mi2 迷
+mi3 米
+mi4 密
+mu1 木
+mu2 母
+mu3 亩
+mu4 目
+
+## ai ei ao ou
+mai1 埋
+mai2 买
+mai3 卖
+mai4 迈
+mei1 眉
+mei2 梅
+mei3 美
+mei4 妹
+mao1 猫
+mao2 毛
+mao3 帽
+mao4 貌
+mou1 谋
+mou2 某
+mou3 眸
+mou4 牟
+
+## ian iang
+mian1 棉
+mian2 免
+mian3 勉
+mian4 冕
+
+## iao
+miao1 喵
+miao2 苗
+miao3 秒
+miao4 妙
+
+## ie
+mie1 咩
+mie4 灭
+
+## in ing
+min2 民
+min3 敏
+min4 悯
+ming2 明
+ming3 命
+ming4 名
+
+## an ang
+man1 蛮
+man2 满
+man3 慢
+man4 漫
+mang2 忙
+mang3 莽
+
+## en eng
+men1 闷
+men2 门
+men3 懑
+men4 们
+meng1 蒙
+meng2 萌
+meng3 猛
+meng4 梦
+
+# f系列（唇齿音）
+## 单元音
+fa1 发
+fa2 罚
+fa3 法
+fa4 乏
+fo2 佛
+fu1 夫
+fu2 服
+fu3 府
+fu4 父
+
+## ei ou
+fei1 非
+fei2 肥
+fei3 匪
+fei4 费
+fou1 否
+fou3 缶
+fou4 讣
+
+## an ang
+fan1 翻
+fan2 烦
+fan3 反
+fan4 范
+fang1 方
+fang2 房
+fang3 访
+fang4 放
+
+## en eng
+fen1 分
+fen2 焚
+fen3 粉
+fen4 份
+feng1 风
+feng2 锋
+feng3 讽
+feng4 凤
+
+# 拼音字典文件 - 舌尖音系列（d/t/n/l）
+# 格式：拼音 汉字
+# 注：选择最常用字
+
+
+# d系列
+## 单元音
+da1 搭
+da2 达
+da3 打
+da4 大
+de1 德
+de2 得
+de3 锝
+de4 嘚
+di1 低
+di2 敌
+di3 底
+di4 地
+du1 独
+du2 读
+du3 堵
+du4 度
+duo1 多
+duo2 夺
+duo3 躲
+duo4 朵
+dou1 兜
+dou2 斗
+dou3 抖
+dou4 豆
+
+## ai ei ao ou
+dai1 呆
+dai2 待
+dai3 带
+dai4 贷
+dei3 得
+dao1 刀
+dao2 导
+dao3 到
+dao4 道
+
+## ian iang
+dian1 点
+dian2 典
+dian3 垫
+dian4 电
+
+## iao
+diao1 雕
+diao2 钓
+diao3 吊
+diao4 调
+
+## ie
+die1 跌
+die2 谍
+die3 叠
+die4 蝶
+
+## iu
+diu1 丢
+
+## ing
+ding1 丁
+ding2 盯
+ding3 顶
+ding4 定
+
+## an ang
+dan1 单
+dan2 耽
+dan3 胆
+dan4 但
+dang1 当
+dang2 荡
+dang3 挡
+dang4 档
+
+## en eng
+deng1 登
+deng2 瞪
+deng3 等
+deng4 邓
+
+## uan uang
+duan1 端
+duan2 段
+duan3 短
+duan4 断
+
+## ui un
+dui1 堆
+dui2 对
+dui3 兑
+dui4 队
+dun1 吨
+dun2 盾
+dun3 钝
+dun4 顿
+
+## ong
+dong1 东
+dong2 动
+dong3 冻
+dong4 洞
+
+# t系列
+## 单元音
+ta1 他
+ta2 塔
+ta3 踏
+ta4 踢
+te4 特
+ti1 梯
+ti2 提
+ti3 体
+ti4 替
+tu1 图
+tu2 徒
+tu3 土
+tu4 兔
+tou1 偷
+tou2 头
+tou3 透
+tou4 透
+
+## ai ei ao ou
+tai1 胎
+tai2 台
+tai3 抬
+tai4 态
+tao1 涛
+tao2 逃
+tao3 讨
+tao4 套
+
+## ian iang
+tian1 天
+tian2 田
+tian3 舔
+tian4 填
+tiang1 恬
+tiang2 畋
+tiang3 挺
+tiang4 烃
+
+## iao
+tiao1 挑
+tiao2 条
+tiao3 挑
+tiao4 跳
+
+## ie
+tie1 贴
+tie2 铁
+tie3 帖
+tie4 铁
+
+## ing
+ting1 听
+ting2 停
+ting3 挺
+ting4 听
+
+## an ang
+tan1 贪
+tan2 谈
+tan3 坦
+tan4 叹
+tang1 汤
+tang2 堂
+tang3 躺
+tang4 烫
+
+## en eng
+ten1 忐
+ten4 忑
+teng1 腾
+teng2 疼
+teng4 誊
+
+## uan uang
+tuan1 团
+tuan2 湍
+tuan3 褪
+tuan4 断
+tuang1 汤
+tuang2 堂
+tuang3 桶
+tuang4 筒
+
+## ui un
+tui1 推
+tui2 颓
+tui3 退
+tui4 褪
+tun1 吞
+tun2 屯
+tun3 囤
+tun4 褪
+
+# n系列
+## 单元音
+na1 拿
+na2 那
+na3 哪
+na4 那
+ne1 呢
+ne2 呐
+ne4 讷
+ni1 妮
+ni2 泥
+ni3 你
+ni4 逆
+nu2 奴
+nu3 努
+nu4 怒
+nou2 耨
+nou4 耨
+
+## ai ei ao ou
+nai3 乃
+nai4 耐
+nei3 馁
+nei4 内
+nao1 挠
+nao2 恼
+nao3 脑
+nao4 闹
+
+## ian iang
+nian1 年
+nian2 黏
+nian3 捻
+nian4 念
+niang2 娘
+niang4 酿
+
+## iao
+niao3 鸟
+niao4 尿
+
+## ie
+nie1 捏
+nie4 聂
+
+## iu
+niu1 妞
+niu2 牛
+niu3 扭
+niu4 纽
+
+## ing
+ning2 宁
+ning3 拧
+ning4 凝
+
+## an ang
+nan1 男
+nan2 南
+nan3 难
+nan4 难
+nang1 囊
+nang2 囊
+nang3 囊
+nang4 囔
+
+## en eng
+nen3 嫩
+nen4 嫩
+neng2 能
+
+## ong
+nong2 农
+nong4 弄
+
+## uan uang
+nuan3 暖
+nuang2 喃
+nuang4 谅
+
+## un
+nun2 黁
+nun4 黁
+
+# l系列
+## 单元音
+la1 拉
+la2 垃
+la3 喇
+la4 辣
+le1 乐
+le4 勒
+li1 离
+li2 梨
+li3 里
+li4 力
+lu1 撸
+lu2 橹
+lu3 路
+lu4 陆
+lou1 搂
+lou2 楼
+lou3 露
+lou4 漏
+lü2 驴
+lv2 驴
+lü3 旅
+lv3 旅
+lü4 绿
+lv4 绿
+
+## ai ei ao ou
+lai2 来
+lai4 赖
+lei1 勒
+lei2 雷
+lei3 累
+lei4 泪
+lao1 捞
+lao2 牢
+lao3 老
+lao4 唠
+
+## ian iang
+lian2 连
+lian3 脸
+lian4 练
+liang2 良
+liang3 两
+liang4 亮
+
+## iao
+liao1 撩
+liao2 聊
+liao3 了
+liao4 料
+
+## ie
+lie1 咧
+lie3 咧
+lie4 列
+
+## iu
+liu1 溜
+liu2 流
+liu3 柳
+liu4 六
+
+## in ing
+lin1 林
+lin2 临
+lin3 凛
+lin4 赁
+ling1 伶
+ling2 灵
+ling3 岭
+ling4 令
+
+## an ang
+lan1 兰
+lan2 蓝
+lan3 懒
+lan4 烂
+lang1 啷
+lang2 郎
+lang3 朗
+lang4 浪
+
+## en eng
+len4 愣
+leng1 棱
+leng2 冷
+leng3 楞
+leng4 愣
+
+## ong
+long1 隆
+long2 龙
+long3 陇
+long4 弄
+
+## uan uang
+luan2 乱
+luan3 卵
+luan4 乱
+luang2 晾
+luang3 亮
+luang4 量
+
+## un
+lun1 轮
+lun2 论
+lun4 论
+
+## üe
+lüe3 掠
+lve3 掠
+lüe4 略
+lve4 略
+
+# g系列
+## 单元音
+ga1 嘎
+ga2 尬
+ga3 钆
+ga4 尜
+ge1 哥
+ge2 格
+ge3 个
+ge4 各
+gu1 姑
+gu2 孤
+gu3 鼓
+gu4 固
+gou1 勾
+gou2 狗
+gou3 购
+gou4 够
+
+## ai ei ao
+gai1 该
+gai2 概
+gai3 改
+gai4 盖
+gei3 给
+gao1 高
+gao2 糕
+gao3 搞
+gao4 告
+
+## ua uo
+gua1 刮
+gua2 瓜
+gua3 寡
+gua4 挂
+guo1 锅
+guo2 国
+guo3 裹
+guo4 过
+
+## uai ui
+guai1 乖
+guai2 拐
+guai3 怪
+guai4 卦
+gui1 规
+gui2 归
+gui3 鬼
+gui4 贵
+
+## an ang
+gan1 甘
+gan2 肝
+gan3 敢
+gan4 干
+gang1 刚
+gang2 纲
+gang3 港
+gang4 钢
+
+## en eng
+gen1 根
+gen2 跟
+gen3 茛
+gen4 艮
+geng1 更
+geng2 耕
+geng3 耿
+geng4 梗
+
+## uan uang
+guan1 关
+guan2 官
+guan3 馆
+guan4 惯
+guang1 光
+guang3 广
+guang4 逛
+
+## un ong
+gun1 棍
+gun2 滚
+gun3 磙
+gun4 棍
+gong1 公
+gong2 工
+gong3 共
+gong4 供
+
+# k系列
+## 单元音
+ka1 咖
+ka2 咔
+ka3 卡
+ka4 咯
+ke1 科
+ke2 咳
+ke3 可
+ke4 克
+ku1 哭
+ku2 枯
+ku3 苦
+ku4 库
+kou1 抠
+kou2 寇
+kou3 口
+kou4 扣
+
+## ai ao
+kai1 开
+kai2 凯
+kai3 慨
+kai4 楷
+kao1 靠
+kao2 考
+kao3 烤
+kao4 铐
+
+## ua uo
+kua1 夸
+kua2 垮
+kua3 挎
+kua4 胯
+kuo1 阔
+kuo2 括
+kuo3 扩
+kuo4 阔
+
+## uai ui
+kuai1 快
+kuai2 块
+kuai3 脍
+kuai4 筷
+kui1 亏
+kui2 盔
+kui3 溃
+kui4 愧
+
+## an ang
+kan1 刊
+kan2 堪
+kan3 看
+kan4 砍
+kang1 康
+kang2 慷
+kang3 抗
+kang4 扛
+
+## en eng
+ken1 肯
+ken2 垦
+ken3 恳
+ken4 啃
+keng1 坑
+keng2 铿
+keng3 硁
+keng4 铿
+
+## uan uang
+kuan1 宽
+kuan2 款
+kuan3 窾
+kuan4 款
+kuang1 狂
+kuang2 矿
+kuang3 旷
+kuang4 况
+
+## un ong
+kun1 昆
+kun2 捆
+kun3 困
+kun4 锟
+kong1 空
+kong2 孔
+kong3 控
+kong4 恐
+
+# h系列
+## 单元音
+ha1 哈
+ha2 蛤
+ha3 铪
+ha4 虾
+he1 喝
+he2 呵
+he3 贺
+he4 盒
+hu1 乎
+hu2 湖
+hu3 虎
+hu4 护
+hou1 呼
+hou2 猴
+hou3 厚
+hou4 后
+
+## ai ei ao
+hai1 还
+hai2 孩
+hai3 海
+hai4 害
+hei1 黑
+hei2 嘿
+hei3 黒
+hei4 嘿
+hao1 毫
+hao2 豪
+hao3 好
+hao4 耗
+
+## ua uo
+hua1 花
+hua2 华
+hua3 化
+hua4 画
+huo1 豁
+huo2 活
+huo3 火
+huo4 或
+
+## uai ui
+huai1 怀
+huai2 槐
+huai3 踝
+huai4 坏
+hui1 灰
+hui2 回
+hui3 悔
+hui4 惠
+
+## an ang
+han1 寒
+han2 含
+han3 汗
+han4 汉
+hang1 夯
+hang2 杭
+hang3 沆
+hang4 巷
+
+## en eng
+hen1 痕
+hen2 很
+hen3 狠
+hen4 恨
+heng1 哼
+heng2 恒
+heng3 横
+heng4 衡
+
+## uan uang
+huan1 欢
+huan2 环
+huan3 换
+huan4 患
+huang1 荒
+huang2 黄
+huang3 谎
+huang4 晃
+
+## un ong
+hun1 昏
+hun2 魂
+hun3 混
+hun4 浑
+hong1 轰
+hong2 红
+hong3 讧
+hong4 鸿
+
+# z系列
+## 单元音
+za1 扎
+za2 咋
+za3 咋
+za4 炸
+ze2 责
+ze4 择
+zi1 兹
+zi3 子
+zi4 字
+zu1 租
+zu2 足
+zu3 卒
+zu4 族
+zou1 邹
+zou2 走
+zou3 奏
+zou4 奏
+
+## ai ei ao ou
+zai1 灾
+zai2 在
+zai3 载
+zai4 再
+zei2 贼
+zao1 遭
+zao2 早
+zao3 枣
+zao4 造
+
+## uan
+zuan1 钻
+zuan3 赚
+zuan4 钻
+
+## ui un
+zui1 嘴
+zui2 最
+zui3 醉
+zui4 罪
+zun1 尊
+zun3 撙
+zun4 遵
+
+## an ang
+zan1 簪
+zan2 咱
+zan3 攒
+zan4 暂
+zang1 脏
+zang3 赃
+zang4 葬
+
+## en eng
+zen3 怎
+zen4 谮
+zeng1 增
+zeng3 赠
+zeng4 综
+
+## ong
+zong1 宗
+zong3 总
+zong4 纵
+
+# c系列
+## 单元音
+ca1 擦
+ca3 礤
+ce4 策
+ci1 疵
+ci2 词
+ci3 此
+ci4 次
+cu1 粗
+cu2 徂
+cu3 醋
+cu4 促
+cou4 凑
+
+## ai ei ao ou
+cai1 猜
+cai2 才
+cai3 采
+cai4 菜
+cao1 操
+cao2 草
+cao3 躜
+cao4 槽
+
+## uan
+cuan1 窜
+cuan2 攒
+cuan4 篡
+
+## ui un
+cui1 崔
+cui3 摧
+cui4 脆
+cun1 村
+cun2 存
+cun3 寸
+cun4 忖
+
+## an ang
+can1 餐
+can2 参
+can3 惨
+can4 残
+cang1 仓
+cang2 苍
+
+## en eng
+cen1 参
+cen2 岑
+ceng1 曾
+ceng2 层
+ceng4 蹭
+
+## ong
+cong1 匆
+cong2 从
+
+# s系列
+## 单元音
+sa1 撒
+sa3 洒
+sa4 萨
+se4 色
+si1 思
+si3 死
+si4 似
+su1 苏
+su2 俗
+su3 素
+su4 速
+sou1 搜
+sou3 嗽
+sou4 馊
+
+## ai ei ao ou
+sai1 腮
+sai4 塞
+sei1 铯
+sao1 骚
+sao3 扫
+sao4 嫂
+
+## uan
+suan1 酸
+suan4 算
+
+## ui un
+sui1 虽
+sui2 随
+sui3 髓
+sui4 碎
+sun1 孙
+sun3 损
+
+## an ang
+san1 三
+san3 散
+san4 散
+sang1 桑
+sang3 嗓
+sang4 丧
+
+## en eng
+sen1 森
+seng1 僧
+
+## ong
+song1 松
+song3 耸
+song4 送
+
+# 拼音字典文件 - 舌面音系列(j/q/x/y)
+# 格式：拼音 汉字
+# 注：选择读音唯一的常用字
+
+# j系列
+## i系列
+ji1 机
+ji2 积
+ji3 挤
+ji4 济
+
+jia1 佳
+jia2 加
+jia3 夹
+jia4 嫁
+
+jiao1 椒
+jiao2 焦
+jiao3 搅
+jiao4 叫
+
+jie1 街
+jie2 结
+jie3 解
+jie4 界
+
+jiu1 揪
+jiu2 久
+jiu3 救
+jiu4 就
+
+## ian/iang系列
+jian1 坚
+jian2 尖
+jian3 剪
+jian4 键
+
+jiang1 江
+jiang2 将
+jiang3 讲
+jiang4 匠
+
+## in/ing系列
+jin1 金
+jin2 斤
+jin3 谨
+jin4 锦
+
+jing1 精
+jing2 晶
+jing3 警
+jing4 境
+
+## iong系列
+jiong1 炯
+jiong2 迥
+jiong3 窘
+jiong4 炅
+
+## ü系列（写成ju）
+ju1 居
+ju2 局
+ju3 举
+ju4 句
+
+juan1 捐
+juan2 绢
+juan3 卷
+juan4 倦
+
+jun1 军
+jun2 君
+jun3 俊
+jun4 峻
+
+# q系列
+## i系列
+qi1 期
+qi2 齐
+qi3 启
+qi4 弃
+
+qia1 掐
+qia2 洽
+qia3 恰
+qia4 髂
+
+qiao1 悄
+qiao2 桥
+qiao3 巧
+qiao4 俏
+
+qie1 切
+qie2 茄
+qie3 且
+qie4 契
+
+qiu1 秋
+qiu2 求
+qiu3 酋
+qiu4 囚
+
+## ian/iang系列
+qian1 千
+qian2 铅
+qian3 浅
+qian4 欠
+
+qiang1 枪
+qiang2 腔
+qiang3 呛
+qiang4 强
+
+## in/ing系列
+qin1 琴
+qin2 勤
+qin3 沁
+qin4 禽
+
+qing1 青
+qing2 晴
+qing3 氢
+qing4 庆
+
+## iong系列
+qiong1 穷
+qiong2 琼
+qiong3 跫
+qiong4 冏
+
+## ü系列（写成qu）
+qu1 区
+qu2 渠
+qu3 取
+qu4 趣
+
+quan1 泉
+quan2 全
+quan3 劝
+quan4 券
+
+qun1 群
+qun2 裙
+qun3 逡
+qun4 囷
+
+# x系列
+## i系列
+xi1 希
+xi2 习
+xi3 喜
+xi4 系
+
+xia1 霞
+xia2 峡
+xia3 下
+xia4 夏
+
+xiao1 萧
+xiao2 消
+xiao3 小
+xiao4 效
+
+xie1 斜
+xie2 协
+xie3 泄
+xie4 谢
+
+xiu1 修
+xiu2 休
+xiu3 朽
+xiu4 秀
+
+## ian/iang系列
+xian1 先
+xian2 闲
+xian3 显
+xian4 现
+
+xiang1 香
+xiang2 详
+xiang3 响
+xiang4 向
+
+## in/ing系列
+xin1 心
+xin2 欣
+xin3 信
+xin4 衅
+
+xing1 兴
+xing2 行
+xing3 醒
+xing4 性
+
+## iong系列
+xiong1 雄
+xiong2 兄
+xiong3 熊
+xiong4 凶
+
+## ü系列
+### xu (ü)
+xu1 虚
+xu2 徐
+xu3 许
+xu4 叙
+
+### xue (üe)
+xue1 薛
+xue2 学
+xue3 雪
+xue4 血
+
+### xuan (üan)
+xuan1 轩
+xuan2 旋
+xuan3 选
+xuan4 炫
+
+### xun (ün)
+xun1 寻
+xun2 巡
+xun3 讯
+xun4 训
+
+# 拼音字典文件 - 舌尖后音系列（zh/ch/sh/r）
+# 格式：拼音 汉字
+# 注：优先选择读音唯一的常用字
+
+
+
+# zh系列
+## 单元音
+zha1 扎
+zha2 渣
+zha3 眨
+zha4 炸
+
+zhe1 遮
+zhe2 折
+zhe3 者
+zhe4 浙
+
+zhi1 知
+zhi2 直
+zhi3 指
+zhi4 制
+
+zhu1 珠
+zhu2 竹
+zhu3 煮
+zhu4 住
+
+zhou1 舟
+zhou2 轴
+zhou3 肘
+zhou4 宙
+
+## ua/uai/uan/uang
+zhua1 抓
+zhua2 爪
+zhua3 爪
+
+zhuai1 拽
+zhuai2 跩
+zhuai3 转
+zhuai4 坠
+
+zhuan1 专
+zhuan2 砖
+zhuan3 转
+zhuan4 赚
+
+zhuang1 装
+zhuang2 庄
+zhuang3 壮
+zhuang4 撞
+
+## ui/un/ong
+zhui1 追
+zhui2 锥
+zhui3 缀
+zhui4 坠
+
+zhun1 谆
+zhun2 准
+zhun3 稳
+zhun4 准
+
+zhong1 中
+zhong2 忠
+zhong3 肿
+zhong4 种
+
+## ai/ei/ao/ou
+zhai1 摘
+zhai2 宅
+zhai3 窄
+zhai4 债
+
+zhei4 这
+
+zhao1 招
+zhao2 罩
+zhao3 找
+zhao4 照
+
+## an/ang/en/eng
+zhan1 沾
+zhan2 占
+zhan3 展
+zhan4 站
+
+zhang1 张
+zhang2 章
+zhang3 涨
+zhang4 账
+
+zhen1 针
+zhen2 诊
+zhen3 振
+zhen4 阵
+
+zheng1 正
+zheng2 整
+zheng3 郑
+zheng4 证
+
+# ch系列
+## 单元音
+cha1 茶
+cha2 查
+cha3 叉
+cha4 岔
+
+che1 车
+che2 撤
+che3 彻
+che4 澈
+
+chi1 吃
+chi2 持
+chi3 尺
+chi4 斥
+
+chu1 初
+chu2 除
+chu3 处
+chu4 储
+
+chou1 抽
+chou2 愁
+chou3 丑
+chou4 臭
+
+## ua/uai/uan/uang
+chua1 撮
+
+chuai1 揣
+chuai2 啜
+chuai3 踹
+chuai4 嘬
+
+chuan1 川
+chuan2 船
+chuan3 喘
+chuan4 串
+
+chuang1 窗
+chuang2 床
+chuang3 闯
+chuang4 幢
+
+## ui/un/ong
+chui1 吹
+chui2 垂
+chui3 捶
+chui4 锤
+
+chun1 春
+chun2 纯
+chun3 蠢
+chun4 醇
+
+chong1 充
+chong2 虫
+chong3 宠
+chong4 冲
+
+## ai/ao/ou
+chai1 拆
+chai2 柴
+chai3 侪
+chai4 瘵
+
+chao1 抄
+chao2 潮
+chao3 吵
+chao4 炒
+
+## an/ang/en/eng
+chan1 缠
+chan2 蝉
+chan3 产
+chan4 颤
+
+chang1 昌
+chang2 常
+chang3 厂
+chang4 唱
+
+chen1 沉
+chen2 陈
+chen3 衬
+chen4 趁
+
+cheng1 撑
+cheng2 城
+cheng3 程
+cheng4 惩
+
+# sh系列
+## 单元音
+sha1 沙
+sha2 傻
+sha3 啥
+sha4 厦
+
+she1 奢
+she2 蛇
+she3 舍
+she4 社
+
+shi1 诗
+shi2 时
+shi3 史
+shi4 事
+
+shu1 书
+shu2 输
+shu3 署
+shu4 数
+
+shou1 收
+shou2 守
+shou3 手
+shou4 瘦
+
+## ua/uai/uan/uang
+shua1 耍
+shua2 刷
+shua3 唰
+shua4 刹
+
+shuai1 摔
+shuai2 帅
+shuai3 甩
+shuai4 率
+
+shuan1 拴
+shuan2 栓
+shuan3 涮
+shuan4 闩
+
+shuang1 双
+shuang2 霜
+shuang3 爽
+shuang4 趟
+
+## ui/un/ong
+shui1 衰
+shui2 谁
+shui3 水
+shui4 睡
+
+shun1 顺
+shun2 瞬
+shun3 吮
+shun4 舜
+
+# ai/ei/ao/ou
+shai1 筛
+shai2 色
+shai3 晒
+shai4 筛
+
+shei2 谁
+
+shao1 烧
+shao2 韶
+shao3 少
+shao4 哨
+
+## an/ang/en/eng
+shan1 山
+shan2 扇
+shan3 闪
+shan4 善
+
+shang1 伤
+shang2 商
+shang3 赏
+shang4 上
+
+shen1 深
+shen2 身
+shen3 审
+shen4 慎
+
+sheng1 生
+sheng2 盛
+sheng3 省
+sheng4 圣
+
+# r系列
+## 单元音
+ri1 日
+ri2 贰
+ri3 矶
+ri4 溺
+
+re1 惹
+re2 热
+re3 喏
+re4 若
+
+rou1 柔
+rou2 揉
+rou3 蹂
+rou4 肉
+
+## uan/ui/un/ong
+ruan1 软
+ruan2 阮
+ruan3 朊
+ruan4 软
+
+rui1 蕊
+rui2 锐
+rui3 蚋
+rui4 瑞
+
+run1 润
+run2 闰
+run3 润
+run4 韧
+
+rong1 容
+rong2 荣
+rong3 冗
+rong4 绒
+
+## an/ang/en/eng
+ran1 然
+ran2 染
+ran3 冉
+ran4 苒
+
+rang1 瓤
+rang2 让
+rang3 壤
+rang4 攘
+
+ren1 人
+ren2 忍
+ren3 稔
+ren4 认
+
+reng1 仍
+reng2 扔
+reng3 艿
+reng4 蹭
+
+
+# 拼音字典文件 - 零声母系列（完整版）
+# 格式：拼音 汉字
+# 注：选择读音唯一的常用字
+
+# 基本元音系列
+a1 啊
+a2 阿
+a3 锕
+a4 嗄
+
+o1 喔
+o2 哦
+o3 噢
+o4 讴
+
+e1 诶
+e2 额
+e3 饿
+e4 厄
+
+# er系列
+er1 儿
+er2 而
+er3 耳
+er4 二
+
+# ai/ei系列
+ai1 哀
+ai2 埃
+ai3 矮
+ai4 艾
+
+ei1 诶
+ei2 欸
+ei3 诶
+ei4 诶
+
+# ao/ou系列
+ao1 凹
+ao2 熬
+ao3 袄
+ao4 傲
+
+ou1 欧
+ou2 偶
+ou3 藕
+ou4 鸥
+
+# an/ang系列
+an1 安
+an2 按
+an3 暗
+an4 岸
+
+ang1 肮
+ang2 昂
+ang4 盎
+
+# en/eng系列
+en1 恩
+en4 嗯
+
+eng1 鞥
+
+# y系列（i的变体）
+yi1 衣
+yi2 移
+yi3 椅
+yi4 亿
+
+ya1 牙
+ya2 雅
+ya3 亚
+ya4 押
+
+yao1 遥
+yao2 窑
+yao3 耀
+yao4 要
+
+ye1 邪
+ye2 椰
+ye3 野
+ye4 叶
+
+you1 优
+you2 悠
+you3 有
+you4 又
+
+yan1 言
+yan2 研
+yan3 演
+yan4 验
+
+yang1 央
+yang2 扬
+yang3 仰
+yang4 养
+
+yin1 因
+yin2 银
+yin3 引
+yin4 印
+
+ying1 英
+ying2 迎
+ying3 影
+ying4 映
+
+yong1 拥
+yong2 勇
+yong3 涌
+yong4 永
+
+# w系列（u的变体）
+wu1 乌
+wu2 无
+wu3 舞
+wu4 物
+
+wa1 娃
+wa2 蛙
+wa3 瓦
+wa4 袜
+
+wo1 窝
+wo2 婐
+wo3 我
+wo4 握
+
+wai1 歪
+wai2 外
+wai3 崴
+wai4 慰
+
+wei1 威
+wei2 围
+wei3 委
+wei4 卫
+
+wan1 弯
+wan2 玩
+wan3 挽
+wan4 腕
+
+wang1 汪
+wang2 王
+wang3 网
+wang4 望
+
+wen1 温
+wen2 文
+wen3 稳
+wen4 问
+
+weng1 翁
+weng2 嗡
+weng3 蓊
+weng4 瓮
+
+# yu系列（ü的变体）
+yu1 淤
+yu2 榆
+yu3 宇
+yu4 育
+
+yue1 约
+yue2 跃
+yue3 岳
+yue4 悦
+
+yuan1 渊
+yuan2 园
+yuan3 远
+yuan4 愿
+
+yun1 云
+yun2 匀
+yun3 允
+yun4 陨
+
+# 特殊拼写规则说明：
+# 1. i 开头的音节要写成 yi（除了 -in, -ing）
+# 2. u 开头的音节要写成 wu
+# 3. ü 开头的音节要写成 yu
+# 4. 以上三种情况分别称为介音 y 和 w
+
+# 说明：一些音节可能缺少部分声调，是因为在汉语中确实没有对应的单字
