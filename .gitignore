@@ -1,5 +1,6 @@
 # 忽略系统产生的文件
 .DS_Store
+__pycache__/
 
 # 忽略日志文件
 logs/*
