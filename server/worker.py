@@ -37,6 +37,9 @@ def worker_process_tts(
 
     logger.info(f"[TTS Worker-{worker_id}] Model loaded!")
 
+    from scripts.utils.FlowMirrorTN.lazy_import import LazyImport
+    tn = LazyImport()
+
     while True:
         task = task_queue.get()
         if "extra_params" in task:
@@ -55,6 +58,11 @@ def worker_process_tts(
         try:
             if task_type == 'zero_shot':
                 # 直接调用inference_zero_shot并构建返回字典
+                task['tts_text'] = tn.process_text(task['tts_text'])
+                if 'prompt_text' in task:
+                    task['prompt_text'] = tn.process_text(task['prompt_text'])
+                else:
+                    task['prompt_text'] = ''
                 output_audio = inference_zero_shot(
                     model_manager, 
                     task['tts_text'], 
@@ -69,6 +77,7 @@ def worker_process_tts(
                     "duration": output_audio.shape[-1] / model_manager.configs['sample_rate']
                 }
             elif task_type == 'tts':
+                task['text'] = tn.process_text(task['text'])
                 result = text_to_speech(model_manager, task['text'], task['speaker_id'])
             elif task_type == 'load_pt':
                 result = model_manager.load_pt(task['llm_pt'], task['flow_pt'])
