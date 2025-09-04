@@ -39,7 +39,7 @@ def worker_process_tts(
 
     try:
         from fmtn import create_default_tn
-        tn = create_default_tn()
+        tn = create_default_tn(verbose=True)
     except:
         raise ValueError("Failed to load text normalization library")
 
