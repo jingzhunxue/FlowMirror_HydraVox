@@ -1,1 +1,0 @@
-window.contentConfig = {"title":"{|{ title }|}","latexDelimiter":"{|{ LaTeX_delimiter }|}","display":"{|{ display }|}","documentDisplay":"{|{ document_display }|}","sourceText":`{|{ data }|}`}
