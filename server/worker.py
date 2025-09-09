@@ -37,8 +37,11 @@ def worker_process_tts(
 
     logger.info(f"[TTS Worker-{worker_id}] Model loaded!")
 
-    from scripts.utils.FlowMirrorTN.lazy_import import LazyImport
-    tn = LazyImport()
+    try:
+        from fmtn import create_default_tn
+        tn = create_default_tn(verbose=True)
+    except:
+        raise ValueError("Failed to load text normalization library")
 
     while True:
         task = task_queue.get()

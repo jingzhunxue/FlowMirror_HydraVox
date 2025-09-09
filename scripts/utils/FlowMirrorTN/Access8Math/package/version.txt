@@ -1,8 +1,0 @@
-html5lib==1.1
-Jinja2==3.1.4
-lark==1.1.9
-latex2mathml==3.77.0
-lxml==5.2.2
-markdown2==2.4.13
-MarkupSafe==2.1.5
-webencodings==0.5.1
