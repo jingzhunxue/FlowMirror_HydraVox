@@ -31,13 +31,13 @@ class TTSRequest(BaseModel):
     text: str  # 要合成的文本
     speaker_id: Optional[str] = None  # 说话人ID
     output_format: str = "wav"  # 输出格式
-    last_prompt: bool = True  # 是否使用上一段音频作为zero shot提示
+    last_prompt: bool = False  # 是否使用上一段音频作为zero shot提示
     extra_params: Optional[Dict[str, Any]] = {
         "top_p": 0.9,
         "top_k": 10,
-        "win_size": 32,
+        "win_size": 24,
         "tau_r": 0.2,
-        "inference_head_num":2
+        "inference_head_num":3
     }
 
 class RAGRequest(BaseModel):
