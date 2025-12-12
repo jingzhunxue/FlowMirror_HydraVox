@@ -91,6 +91,7 @@ tokenizer = get_qwen_tokenizer(
 def prepare_dataset_llm(ds: Dataset, tokenizer: PreTrainedTokenizerBase) -> Dataset:
     """保留LLM训练所需的列"""
     ds = ds.remove_columns([c for c in ds.column_names if c not in USEFUL_COLUMNS_LLM])
+    ds = ds.cast_column("audio", Audio(decode=True, sampling_rate=16000))
     return ds
 
 
@@ -98,6 +99,15 @@ def _load_audio_with_fallback(audio_info, target_sr: int | None = None, neighbor
     """加载音频，支持邻近样本回退"""
     def load_single_audio(info):
         if isinstance(info, dict):
+            if "array" in info:
+                wav = torch.tensor(info["array"], dtype=torch.float32)
+                if mono and wav.dim() > 1:
+                    wav = wav.mean(dim=0, keepdim=True)
+                else:
+                    wav = wav.unsqueeze(0)
+                if target_sr is not None and info["sampling_rate"] != target_sr:
+                    wav = torchaudio.transforms.Resample(info["sampling_rate"], target_sr)(wav)
+                return wav
             path = "/home/ecs-user/nas_training_data/HanxueTTS/downloaded_audio/" + info.get("path")
         elif isinstance(info, str):
             path = info
@@ -117,7 +127,8 @@ def _load_audio_with_fallback(audio_info, target_sr: int | None = None, neighbor
     # 尝试加载当前音频
     try:
         return load_single_audio(audio_info)
-    except Exception:
+    except Exception as e:
+        print("Audio not found: ", audio_info, e)
         pass
     
     # 尝试邻近样本
@@ -187,7 +198,9 @@ def process_audio_unified(audio_dict, neighbor_list=None, idx=None, need_speech_
 
 def prepare_dataset_flow(ds: Dataset) -> Dataset:
     """保留FLOW训练所需的列"""
-    return ds.remove_columns([c for c in ds.column_names if c not in USEFUL_COLUMNS_FLOW])
+    ds = ds.remove_columns([c for c in ds.column_names if c not in USEFUL_COLUMNS_FLOW])
+    ds = ds.cast_column("audio", Audio(decode=True, sampling_rate=16000))
+    return ds
 
 
 # -----------------------------------------------------------------------------
