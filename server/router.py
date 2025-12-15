@@ -37,7 +37,7 @@ class TTSRequest(BaseModel):
         "top_k": 10,
         "win_size": 24,
         "tau_r": 0.2,
-        "inference_head_num":3
+        "inference_head_num":2
     }
 
 class RAGRequest(BaseModel):

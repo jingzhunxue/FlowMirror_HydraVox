@@ -48,6 +48,14 @@ from fmtn import create_default_tn
 
 tn = create_default_tn(verbose=True)
 
+tn.add_special_token("<|happy|>")
+tn.add_special_token("<|sad|>")
+tn.add_special_token("<|excited|>")
+tn.add_special_token("<|empathy|>")
+tn.add_special_token("<|depressed|>")
+tn.add_special_token("<|angry|>")
+tn.add_special_token("<|admiration|>")
+
 so = ort.SessionOptions()
 so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 so.intra_op_num_threads = 1
@@ -433,11 +441,27 @@ def main():
             else:
                 train_dss = [prepare_dataset_flow(ds) for ds in train_dss]
             full_dataset = concatenate_datasets(train_dss).shuffle(seed=42)
-            val_size = int(len(full_dataset) * args.val_split_ratio)
-            train_size = len(full_dataset) - val_size
-            train_dataset = full_dataset.select(range(train_size))
-            eval_dataset = full_dataset.select(range(train_size, train_size + val_size))
-            logging.info(f"自动划分验证集: 训练集 {train_size}，验证集 {val_size}")
+            if args.val_split_ratio <= 0:
+                # val_split_ratio=0：不划分验证集，仅训练
+                train_dataset = full_dataset
+                eval_dataset = None
+                logging.info("自动划分验证集已关闭（val_split_ratio <= 0）：仅训练不验证")
+            else:
+                val_size = int(len(full_dataset) * args.val_split_ratio)
+                if val_size <= 0:
+                    # 数据量太小导致 val_size 四舍五入为 0：同样不验证
+                    train_dataset = full_dataset
+                    eval_dataset = None
+                    logging.info("验证集大小为 0：仅训练不验证")
+                elif val_size >= len(full_dataset):
+                    raise ValueError(
+                        f"val_split_ratio 过大导致验证集大小({val_size}) >= 数据集总量({len(full_dataset)})"
+                    )
+                else:
+                    train_size = len(full_dataset) - val_size
+                    train_dataset = full_dataset.select(range(train_size))
+                    eval_dataset = full_dataset.select(range(train_size, train_size + val_size))
+                    logging.info(f"自动划分验证集: 训练集 {train_size}，验证集 {val_size}")
         else:
             val_paths = args.cv_data.split(",")
             train_dss = [load_from_disk(p) for p in train_paths]

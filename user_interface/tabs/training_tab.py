@@ -1099,7 +1099,7 @@ def create_training_tab():
                     eval_steps = gr.Slider(50, 2000, value=500, step=50, label="评估间隔(步数)")
                 
                 with gr.Group():
-                    validation_split = gr.Slider(0.0001, 0.3, value=0.05, step=0.01, label="验证集比例")
+                    validation_split = gr.Slider(0.00, 0.3, value=0.05, step=0.01, label="验证集比例")
                     use_auto_split = gr.Checkbox(label="自动划分验证集", value=True)
                     
                 # 高级选项
