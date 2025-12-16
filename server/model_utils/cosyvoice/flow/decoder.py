@@ -429,7 +429,7 @@ class CausalConditionalDecoder(ConditionalDecoder):
             x = pack([x, spks], "b * t")[0]
         if cond is not None:
             x = pack([x, cond], "b * t")[0]
-        x = x.to(t.dtype)
+
         hiddens = []
         masks = [mask]
         for resnet, transformer_blocks, downsample in self.down_blocks:

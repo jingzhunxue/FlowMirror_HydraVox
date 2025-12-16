@@ -22,6 +22,8 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from transformers import Qwen2ForCausalLM
+from transformers.models.qwen2.modeling_qwen2 import Qwen2DecoderLayer
+from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 from torch.nn.utils.rnn import pad_sequence, unpad_sequence
 from cosyvoice.utils.common import IGNORE_ID
 from cosyvoice.transformer.label_smoothing_loss import LabelSmoothingLoss
@@ -628,6 +630,10 @@ class CosyVoice3LM(Qwen2LM):
             length_normalized_loss: bool = True,
             lsm_weight: float = 0.0,
             mix_ratio: List[int] = [5, 15],
+            head_num: int = 5,
+            inference_head_num: int = 5,
+            mtp_head_num: int = 14,
+            freeze_embedding: bool = False,
     ):
         torch.nn.Module.__init__(self)
         self.llm_input_size = llm_input_size
@@ -640,16 +646,34 @@ class CosyVoice3LM(Qwen2LM):
         self.fill_token = speech_token_size + 3
 
         self.llm = llm
-        self.llm_decoder = nn.Linear(llm_output_size, speech_token_size + 200, bias=False)
+        self.vocab_size = speech_token_size + 200
+
+        # keep a single shared decoder for inference/training (all heads share params)
+        self.llm_decoder = nn.Linear(llm_output_size, self.vocab_size, bias=False)
+
+        # multi-head training blocks (MTP + per-head decoders)
+        self.head_num = head_num
+        self.inference_head_num = inference_head_num
+        self.mtp_block = nn.ModuleList([
+            Qwen2DecoderLayer(
+                Qwen2Config(
+                    hidden_size=llm_input_size,
+                    num_attention_heads=mtp_head_num,
+                    num_key_value_heads=mtp_head_num,
+                ),
+                0,
+            )
+            for _ in range(head_num)
+        ])
         self.criterion_ce = LabelSmoothingLoss(
-            size=speech_token_size + 200,
+            size=self.vocab_size,
             padding_idx=IGNORE_ID,
             smoothing=lsm_weight,
             normalize_length=length_normalized_loss,
         )
 
         # 3. [Optional] build speech token related modules
-        self.speech_embedding = torch.nn.Embedding(speech_token_size + 200, llm_input_size)
+        self.speech_embedding = torch.nn.Embedding(self.vocab_size, llm_input_size)
 
         # 4. sampling method
         self.sampling = sampling
@@ -658,6 +682,86 @@ class CosyVoice3LM(Qwen2LM):
         # 5. vllm related
         self.stop_token_ids = [speech_token_size + i for i in range(200)]
         self.vllm_output_queue = {}
+
+        if freeze_embedding:
+            self.speech_embedding.weight.requires_grad = False
+            self.llm_decoder.weight.requires_grad = False
+            self.llm.model.model.embed_tokens.weight.requires_grad = False
+
+    @staticmethod
+    def pad_tensor(tensor_list: List[torch.Tensor], padding_tensor: torch.Tensor) -> torch.Tensor:
+        """Pad a list of 2D tensors (Li, D) into a (B, Lmax, D) tensor with a vector pad row."""
+        if tensor_list is None or len(tensor_list) == 0:
+            pad_vec = padding_tensor
+            if pad_vec.dim() == 3:
+                d = pad_vec.size(-1)
+            elif pad_vec.dim() == 2:
+                d = pad_vec.size(-1)
+            else:
+                d = pad_vec.numel()
+            return torch.zeros(0, 0, d, device=pad_vec.device, dtype=pad_vec.dtype)
+
+        pad_vec = padding_tensor
+        if pad_vec.dim() == 3:
+            pad_vec = pad_vec.squeeze(0).squeeze(0)
+        elif pad_vec.dim() == 2:
+            pad_vec = pad_vec.squeeze(0)
+
+        max_len = max(x.size(0) for x in tensor_list)
+        d = tensor_list[0].size(1)
+        b = len(tensor_list)
+        if pad_vec.numel() != d:
+            raise ValueError(f"padding_tensor last dim {pad_vec.numel()} != feature dim {d}")
+
+        out = pad_vec.view(1, 1, d).expand(b, max_len, d).clone()
+        for i, x in enumerate(tensor_list):
+            l = x.size(0)
+            if l > 0:
+                out[i, :l, :] = x
+        return out
+
+    def prepare_lm_input_target(self, sos_emb, text_token, text_token_emb, text_token_len, task_id_emb, speech_token, speech_token_emb, speech_token_len):
+        batch_size = text_token.size(0)
+
+        text_token_list = unpad_sequence(text_token, text_token_len.cpu(), batch_first=True)
+        speech_token_list = unpad_sequence(speech_token, speech_token_len.cpu(), batch_first=True)
+        text_token_emb_list = unpad_sequence(text_token_emb, text_token_len.cpu(), batch_first=True)
+        speech_token_emb_list = unpad_sequence(speech_token_emb, speech_token_len.cpu(), batch_first=True)
+
+        lm_input_list: List[torch.Tensor] = []
+        for i in range(batch_size):
+            lm_input_list.append(
+                torch.concat(
+                    [
+                        sos_emb.squeeze(dim=0),
+                        text_token_emb_list[i],
+                        task_id_emb.squeeze(dim=0),
+                        speech_token_emb_list[i],
+                    ],
+                    dim=0,
+                )
+            )
+
+        lm_input_len = torch.tensor([x.size(0) for x in lm_input_list], dtype=torch.int32, device=text_token.device)
+        pad_vec = self.speech_embedding.weight[self.eos_token].to(text_token.device)
+        lm_input = self.pad_tensor(lm_input_list, pad_vec).to(text_token.device)
+
+        lm_target_per_head_batch: List[torch.Tensor] = []
+        for count in range(self.head_num):
+            this_head_targets: List[torch.Tensor] = []
+            for i in range(batch_size):
+                tlen = int(text_token_len[i].item())
+                slen = int(speech_token_len[i].item())
+                speech_ids = speech_token_list[i].tolist()
+                shifted = speech_ids[count:slen]
+                this_target = torch.tensor(
+                    [IGNORE_ID] * (1 + tlen) + shifted + [self.eos_token] + [IGNORE_ID] * count,
+                    device=text_token.device,
+                )
+                this_head_targets.append(this_target)
+            lm_target_per_head_batch.append(pad_sequence(this_head_targets, batch_first=True, padding_value=IGNORE_ID))
+
+        return lm_target_per_head_batch, lm_input, lm_input_len
 
     def forward(
             self,
@@ -690,16 +794,133 @@ class CosyVoice3LM(Qwen2LM):
         speech_token_emb = self.speech_embedding(speech_token)
 
         # 3. prepare llm_input/target
-        lm_target, lm_input, lm_input_len = self.prepare_lm_input_target(sos_emb, text_token, text_token_emb, text_token_len, task_id_emb,
-                                                                         speech_token, speech_token_emb, speech_token_len)
-        lm_target = lm_target.to(device)
+        lm_target_per_head_batch, lm_input, lm_input_len = self.prepare_lm_input_target(
+            sos_emb,
+            text_token,
+            text_token_emb,
+            text_token_len,
+            task_id_emb,
+            speech_token,
+            speech_token_emb,
+            speech_token_len,
+        )
 
         # 4. run lm forward
         lm_output, lm_output_mask = self.llm(lm_input, lm_input_len.to(device))
-        logits = self.llm_decoder(lm_output)
-        loss = self.criterion_ce(logits, lm_target.to(device))
-        acc = th_accuracy(logits.view(-1, self.speech_token_size + 3), lm_target, ignore_label=IGNORE_ID)
-        return {'loss': loss, 'acc': acc}
+        mtp_output = [self.mtp_block[i](lm_output.transpose(0, 1))[0].transpose(0, 1) for i in range(self.head_num)]
+        logits = [self.llm_decoder(mtp_output[i]) for i in range(self.head_num)]
+
+        for i in range(self.head_num):
+            assert logits[i].shape[:2] == lm_target_per_head_batch[i].shape, \
+                f"expected logits (B,L,C) to match target (B,L), got {logits[i].shape} vs {lm_target_per_head_batch[i].shape}"
+
+        losses = [self.criterion_ce(logits[i], lm_target_per_head_batch[i].to(device)) for i in range(self.head_num)]
+        accs = [
+            th_accuracy(
+                logits[i].view(-1, self.vocab_size),
+                lm_target_per_head_batch[i].to(device),
+                ignore_label=IGNORE_ID,
+            )
+            for i in range(self.head_num)
+        ]
+        total_loss = torch.stack(losses).mean()
+        total_acc = torch.stack(accs).mean()
+        return {'loss': total_loss, 'acc': total_acc}
+
+    @torch.inference_mode()
+    def inference_wrapper(self, lm_input, sampling, min_len, max_len, uuid):
+        if hasattr(self, 'vllm'):
+            from vllm import SamplingParams, RequestOutput
+            sampling_params = SamplingParams(top_k=sampling,
+                                             stop_token_ids=self.stop_token_ids,
+                                             min_tokens=min_len,
+                                             max_tokens=max_len)
+            with self.lock:
+                self.vllm.add_request(uuid, {"prompt_embeds": lm_input.squeeze(0).to(torch.bfloat16).to(lm_input.device)}, sampling_params)
+                self.vllm_output_queue[uuid] = queue.Queue()
+            out_tokens = []
+            while True:
+                with self.lock:
+                    if self.vllm_output_queue[uuid].empty() is True:
+                        request_outputs: List[RequestOutput] = self.vllm.step()
+                        for request_output in request_outputs:
+                            top_ids = list(request_output.outputs[0].token_ids)[-1]
+                            self.vllm_output_queue[request_output.request_id].put(top_ids)
+                if self.vllm_output_queue[uuid].empty() is False:
+                    top_ids = self.vllm_output_queue[uuid].get()
+                    if top_ids in self.stop_token_ids:
+                        break
+                    # in stream mode, yield token one by one
+                    yield top_ids
+                    out_tokens.append(top_ids)
+                    if len(out_tokens) == max_len:
+                        break
+                time.sleep(0.001)
+            with self.lock:
+                self.vllm_output_queue.pop(uuid)
+        else:
+            # Multi-head decode: generate multiple tokens (default 5) per LLM step.
+            # We follow the same idea as `llm_multi_head.py` inference: each step runs the base LLM once,
+            # then uses multiple MTP heads to predict several next tokens, and appends all predicted
+            # token embeddings back to `lm_input`.
+            out_tokens: List[int] = []
+            head_k = int(min(getattr(self, "inference_head_num", 1), getattr(self, "head_num", 1)))
+            if head_k <= 0:
+                head_k = 1
+
+            while len(out_tokens) < max_len:
+                # Run base LLM on full prefix (no cache; keeps masking logic simple & consistent).
+                y_pred, _ = self.llm.forward_one_step(
+                    lm_input,
+                    masks=torch.tril(
+                        torch.ones(
+                            (1, lm_input.shape[1], lm_input.shape[1]),
+                            device=lm_input.device,
+                        )
+                    ).to(torch.bool),
+                    cache=None,
+                )
+
+                # Predict a group of next tokens from multiple heads using the last hidden state.
+                # NOTE: inference is typically batch=1; keep implementation robust anyway.
+                last_hidden = y_pred[:, -1, :].unsqueeze(1)  # (B, 1, H)
+                mtp_output = [self.mtp_block[j](last_hidden)[0] for j in range(head_k)]
+                logps = [self.llm_decoder(mtp_output[j][:, -1]).log_softmax(dim=-1) for j in range(head_k)]
+
+                # Sample all heads against the same history snapshot (matches `llm_multi_head.py` behavior).
+                decoded_snapshot = list(out_tokens)
+                sampled_ids: List[int] = []
+                for j in range(head_k):
+                    ignore_eos = (len(decoded_snapshot) + j) < min_len
+                    top_id = self.sampling_ids(logps[j].squeeze(dim=0), decoded_snapshot, sampling, ignore_eos=ignore_eos)
+                    if isinstance(top_id, torch.Tensor):
+                        top_id = int(top_id.item())
+                    else:
+                        top_id = int(top_id)
+                    sampled_ids.append(top_id)
+
+                group_ids: List[int] = []
+                stop = False
+                for top_id in sampled_ids:
+                    if top_id in self.stop_token_ids:
+                        stop = True
+                        break
+                    yield top_id
+                    out_tokens.append(top_id)
+                    group_ids.append(top_id)
+                    if len(out_tokens) >= max_len:
+                        stop = True
+                        break
+
+                if stop or len(group_ids) == 0:
+                    break
+
+                # Append embeddings for all predicted tokens to keep growing the prefix.
+                token_embs = self.speech_embedding.weight[
+                    torch.tensor(group_ids, device=lm_input.device, dtype=torch.long)
+                ].unsqueeze(0)  # (1, K, H)
+                lm_input = torch.cat([lm_input, token_embs], dim=1)
+
 
     @torch.inference_mode()
     def inference(

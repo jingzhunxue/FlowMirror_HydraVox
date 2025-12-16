@@ -70,6 +70,14 @@ build_speakeinfo.py
 
 CLAUDE.md
 
-test_audio*/
+## 数据
+*pypinyin
+hanxue*
 
+## 模型
+test_audio*/
 models/
+checkpoints*
+pretrained_models/
+cv3_llm_multihead_pretrain/
+outputs/
