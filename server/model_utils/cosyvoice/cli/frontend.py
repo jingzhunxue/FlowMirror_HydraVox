@@ -32,8 +32,8 @@ except ImportError:
     from wetext import Normalizer as ZhNormalizer
     from wetext import Normalizer as EnNormalizer
     use_ttsfrd = False
-from cosyvoice.utils.file_utils import logging, load_wav
-from cosyvoice.utils.frontend_utils import contains_chinese, replace_blank, replace_corner_mark, remove_bracket, spell_out_number, split_paragraph, is_only_punctuation
+from ..utils.file_utils import logging, load_wav
+from ..utils.frontend_utils import contains_chinese, replace_blank, replace_corner_mark, remove_bracket, spell_out_number, split_paragraph, is_only_punctuation
 
 
 class CosyVoiceFrontEnd:

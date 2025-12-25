@@ -70,7 +70,7 @@ conda create -n hydravox python=3.11
 pip install -r requirements.txt
 
 # 3) Download model weights
-modelscope download jzx-ai-lab/HydraVox --local_dir jzx-ai-lab/HydraVox
+modelscope download jzx-ai-lab/HydraVox-CV3 --local_dir jzx-ai-lab/HydraVox-CV3
 
 # 4) Create .env
 cp .env.example .env
@@ -106,7 +106,7 @@ Screenshots:
 **Data directories** (defaults, overridable):
 
 ```
-jzx-ai-lab/HydraVox      # model weights
+jzx-ai-lab/HydraVox-CV3      # model weights
 logs/                    # train/infer logs
 ```
 
@@ -252,10 +252,10 @@ Notes:
 
 | Name                  | Params | Langs   | type   | Multi‑Head | Link  |
 | --------------------- | -----: | ------- | --------- | ---------: | ----- |
-| hydravox-base-pretrained         | ~300M | zh/en   |AR-Transformer  |          5 | https://www.modelscope.cn/models/jzx-ai-lab/HydraVox/file/view/master/llm.pt |
+| hydravox-base-pretrained         | ~300M | zh/en   |AR-Transformer  |          5 | https://www.modelscope.cn/models/jzx-ai-lab/HydraVox-CV3/file/view/master/llm.pt |
 
 > Download total weights by ```
-modelscope download jzx-ai-lab/HydraVox --local_dir jzx-ai-lab/HydraVox```
+modelscope download jzx-ai-lab/HydraVox-CV3 --local_dir jzx-ai-lab/HydraVox-CV3```
 
 ---
 ## Train & Finetune
@@ -298,8 +298,8 @@ Set the following in the "Train" tab and click "Start training":
   - Training dataset path: select the dataset produced by Stage 3/4 (e.g., `<...>_asr` or `<...>_token`)
 - 2) Model
   - Model type: `llm` or `flow`
-  - Model checkpoint: e.g., `jzx-ai-lab/HydraVox/llm.pt`
-  - Tokenizer path: e.g., `jzx-ai-lab/HydraVox/CosyVoice-BlankEN`
+  - Model checkpoint: e.g., `jzx-ai-lab/HydraVox-CV3/llm.pt`
+  - Tokenizer path: e.g., `jzx-ai-lab/HydraVox-CV3/CosyVoice-BlankEN`
   - Output directory: e.g., `checkpoints/training_llm`
 - 3) Training params
   - Batch size, learning rate, epochs, save interval (steps), logging_steps, eval_steps

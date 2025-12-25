@@ -29,7 +29,7 @@ import whisper
 
 # ----------- 模型路径 -------------
 TOKENIZER_ONNX_PATH = Path(
-    "jzx-ai-lab/HydraVox/speech_tokenizer_v2.onnx"
+    "jzx-ai-lab/HydraVox-CV3/speech_tokenizer_v3.onnx"
 ).expanduser().resolve()
 
 # 本地模型路径

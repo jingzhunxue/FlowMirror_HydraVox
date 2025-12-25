@@ -45,6 +45,7 @@ def worker_process_tts(
 
     while True:
         task = task_queue.get()
+        speed = 1.0
         if "extra_params" in task:
             model_manager.models['llm'].sampling = partial(ras_sampling,
                 top_p=task['extra_params']['top_p'],
@@ -53,6 +54,7 @@ def worker_process_tts(
                 tau_r=task['extra_params']['tau_r']
             )
             model_manager.models['llm'].inference_head_num = task['extra_params']['inference_head_num']
+            speed = float(task['extra_params'].get('speed', 1.0))
             
         if task is None:
             break
@@ -70,8 +72,9 @@ def worker_process_tts(
                     model_manager, 
                     task['tts_text'], 
                     task['prompt_text'], 
-                    task['prompt_audio'], 
-                    task['prompt_sample_rate']
+                    task['prompt_audio'],
+                    task['prompt_sample_rate'],
+                    speed=speed
                 )
                 result = {
                     "output_audio": output_audio,
@@ -81,7 +84,7 @@ def worker_process_tts(
                 }
             elif task_type == 'tts':
                 task['text'] = tn.process_text(task['text'])
-                result = text_to_speech(model_manager, task['text'], task['speaker_id'])
+                result = text_to_speech(model_manager, task['text'], task['speaker_id'], speed=speed)
             elif task_type == 'load_pt':
                 result = model_manager.load_pt(task['llm_pt'], task['flow_pt'])
         except Exception as e:

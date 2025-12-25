@@ -8,31 +8,6 @@ logger = logging.getLogger("inference_tab")
 
 BACKEND = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
-# 情绪 token（参考 prepare_data.ipynb：7 种情绪 + usual 普通）
-EMOTION_CHOICES = [
-    "usual（普通）",
-    "happy（开心）",
-    "sad（伤心）",
-    "excited（兴奋）",
-    "empathy（共情）",
-    "depressed（低落）",
-    "angry（生气）",
-    "admiration（钦佩）",
-]
-
-EMOTION_TO_TOKEN = {
-    "usual（普通）": "",
-    "happy（开心）": "<|happy|>",
-    "sad（伤心）": "<|sad|>",
-    "excited（兴奋）": "<|excited|>",
-    "empathy（共情）": "<|empathy|>",
-    "depressed（低落）": "<|depressed|>",
-    "angry（生气）": "<|angry|>",
-    "admiration（钦佩）": "<|admiration|>",
-}
-
-ALL_EMOTION_TOKENS = [t for t in EMOTION_TO_TOKEN.values() if t]
-
 # 获取项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 SAMPLES_DIR = PROJECT_ROOT / "assets/samples"
@@ -153,37 +128,6 @@ def load_pt(llm_pt: str, flow_pt: str):
         gr.Warning(f"加载失败: {e}")
         return f"❌ 加载失败: {e}"
 
-def _strip_emotion_tokens(text: str) -> str:
-    """去掉文本前后可能存在的情绪 token（仅处理已知 token；避免切换情绪时叠加）。"""
-    if not text:
-        return text
-    s = text.strip()
-    # 只移除前后各一个 token（最常见格式：<|x|>文本<|x|>）
-    for tok in ALL_EMOTION_TOKENS:
-        if s.startswith(tok):
-            s = s[len(tok):].lstrip()
-            break
-    for tok in ALL_EMOTION_TOKENS:
-        if s.endswith(tok):
-            s = s[:-len(tok)].rstrip()
-            break
-    return s
-
-def apply_emotion_tokens(text: str, emotion_choice: str) -> str:
-    """根据情绪选择，把 token 自动包在文本前后；usual 则移除 token。"""
-    base = _strip_emotion_tokens(text or "")
-    tok = EMOTION_TO_TOKEN.get(emotion_choice, "")
-    if not tok:
-        return base
-    if not base.strip():
-        # 空文本时不强塞 token，避免出现只有 token 的输入
-        return base
-    return f"{tok}{base}{tok}"
-
-def on_emotion_change(emotion_choice: str, text: str):
-    """切换情绪时，自动更新文本框内容（前后插入/移除 token）。"""
-    return gr.update(value=apply_emotion_tokens(text, emotion_choice))
-
 def tts_once(
     text: str,
     speaker_id: str,
@@ -191,6 +135,7 @@ def tts_once(
     top_k: int,
     win_size: int,
     tau_r: float,
+    speed: float,
     inference_head_num: int,
 ) -> Tuple[int, np.ndarray]:
     """执行一次TTS合成，携带高级控制参数"""
@@ -203,6 +148,7 @@ def tts_once(
                 "top_k": int(top_k),
                 "win_size": int(win_size),
                 "tau_r": float(tau_r),
+                "speed": float(speed),
                 "inference_head_num": int(inference_head_num),
             },
         }
@@ -232,6 +178,7 @@ def zero_shot_tts(
     top_k: int,
     win_size: int,
     tau_r: float,
+    speed: float,
     inference_head_num: int,
 ) -> Tuple[int, np.ndarray]:
     """执行Zero-shot TTS合成"""
@@ -264,6 +211,7 @@ def zero_shot_tts(
                 "top_k": int(top_k),
                 "win_size": int(win_size),
                 "tau_r": float(tau_r),
+                "speed": float(speed),
                 "inference_head_num": int(inference_head_num),
             },
         }
@@ -286,7 +234,6 @@ def zero_shot_tts(
 
 def synthesis_wrapper(
     text: str,
-    emotion_choice: str,
     synthesis_mode: str,
     speaker_id: str,
     prompt_text: str,
@@ -295,13 +242,12 @@ def synthesis_wrapper(
     top_k: int,
     win_size: int,
     tau_r: float,
+    speed: float,
     inference_head_num: int,
 ) -> Tuple[int, np.ndarray]:
     """合成包装函数，根据模式选择不同的合成方式"""
-    # 兜底：即使用户手动编辑了文本，也确保情绪 token 生效（或 usual 时移除）
-    text = apply_emotion_tokens(text, emotion_choice)
     if synthesis_mode == "预设说话人":
-        return tts_once(text, speaker_id, top_p, top_k, win_size, tau_r, inference_head_num)
+        return tts_once(text, speaker_id, top_p, top_k, win_size, tau_r, speed, inference_head_num)
     elif synthesis_mode == "Zero-shot":
         if not prompt_text.strip():
             logger.error("Zero-shot模式下提示文本不能为空")
@@ -309,7 +255,7 @@ def synthesis_wrapper(
         if prompt_audio is None:
             logger.error("Zero-shot模式下提示音频不能为空")
             return None
-        return zero_shot_tts(text, prompt_text, prompt_audio, top_p, top_k, win_size, tau_r, inference_head_num)
+        return zero_shot_tts(text, prompt_text, prompt_audio, top_p, top_k, win_size, tau_r, speed, inference_head_num)
     else:
         logger.error(f"未知的合成模式: {synthesis_mode}")
         return None
@@ -425,7 +371,7 @@ def toggle_synthesis_mode(mode: str):
 
 def clear_inputs():
     """清空输入与输出"""
-    return "", None, "", None, EMOTION_CHOICES[0]
+    return "", None, "", None
 
 def create_inference_tab():
     """创建推理tab界面（精简与美化）"""
@@ -481,13 +427,6 @@ def create_inference_tab():
                     placeholder="请输入要合成的文本...",
                     lines=4,
                 )
-
-                emotion_choice = gr.Radio(
-                    choices=EMOTION_CHOICES,
-                    value=EMOTION_CHOICES[0],
-                    label="情绪",
-                )
-                gr.Markdown("*选择特殊情绪后，会自动在文本前后插入对应的 token*", elem_classes=["tiny-muted"])
                 
                 gr.Examples(
                     examples=[
@@ -582,6 +521,7 @@ def create_inference_tab():
                 with gr.Row():
                     win_size = gr.Slider(0, 256, value=32, step=8, label="win_size")
                     tau_r = gr.Slider(0.0, 1.0, value=0.2, step=0.01, label="tau_r")
+                speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="speed")
                 inference_head_num = gr.Slider(1, 5, value=2, step=1, label="inference_head_num")
         
         with gr.Row():
@@ -615,8 +555,7 @@ def create_inference_tab():
         synth_btn.click(
             fn=synthesis_wrapper,
             inputs=[
-                single_text, 
-                emotion_choice,
+                single_text,
                 synthesis_mode, 
                 speaker, 
                 prompt_text, 
@@ -625,6 +564,7 @@ def create_inference_tab():
                 top_k, 
                 win_size, 
                 tau_r, 
+                speed,
                 inference_head_num
             ],
             outputs=audio_out,
@@ -632,14 +572,7 @@ def create_inference_tab():
         
         clear_btn.click(
             fn=clear_inputs,
-            outputs=[single_text, audio_out, prompt_text, prompt_audio, emotion_choice],
-        )
-
-        # 情绪切换：自动更新文本 token
-        emotion_choice.change(
-            fn=on_emotion_change,
-            inputs=[emotion_choice, single_text],
-            outputs=[single_text],
+            outputs=[single_text, audio_out, prompt_text, prompt_audio],
         )
         
         refresh_btn.click(

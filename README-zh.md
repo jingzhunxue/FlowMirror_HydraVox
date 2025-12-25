@@ -70,7 +70,7 @@ conda create -n hydravox python=3.11
 pip install -r requirements.txt
 
 # 3) Download model weights
-modelscope download jzx-ai-lab/HydraVox --local_dir jzx-ai-lab/HydraVox
+modelscope download jzx-ai-lab/HydraVox-CV3 --local_dir jzx-ai-lab/HydraVox-CV3
 
 # 4) Create .env
 cp .env.example .env
@@ -106,7 +106,7 @@ python main.py --api-host 0.0.0.0 --api-port 7860
 **数据目录**（可覆盖）：
 
 ```
-jzx-ai-lab/HydraVox      # 模型权重
+jzx-ai-lab/HydraVox-CV3      # 模型权重
 logs/                    # 训练/推理日志
 ```
 
@@ -252,11 +252,11 @@ def zero_shot(tts_text: str, prompt_text: str, prompt_wav_path: str,
 
 | 名称                     | 参数量 | 语言 | 类型            | 多头 | 链接 |
 | ------------------------ | ----: | ---- | --------------- | ---: | ---- |
-| hydravox-base-pretrained | ~300M | zh/en | AR-Transformer |   5 | https://www.modelscope.cn/models/jzx-ai-lab/HydraVox/file/view/master/llm.pt |
+| hydravox-base-pretrained | ~300M | zh/en | AR-Transformer |   5 | https://www.modelscope.cn/models/jzx-ai-lab/HydraVox-CV3/file/view/master/llm.pt |
 
 > 下载完整权重：
 ```
-modelscope download jzx-ai-lab/HydraVox --local_dir jzx-ai-lab/HydraVox
+modelscope download jzx-ai-lab/HydraVox-CV3 --local_dir jzx-ai-lab/HydraVox-CV3
 ```
 
 ---
@@ -289,7 +289,7 @@ modelscope download jzx-ai-lab/HydraVox --local_dir jzx-ai-lab/HydraVox
 在 “🚀 训练” 标签页进行：
 
 - 1) 数据集：选择由阶段 3/4 产出的 HF 数据集（如 `<...>_asr` 或 `<...>_token`）
-- 2) 模型：类型 `llm`/`flow`；检查点（如 `jzx-ai-lab/HydraVox/llm.pt`）；分词器；输出目录（如 `checkpoints/training_llm`）
+- 2) 模型：类型 `llm`/`flow`；检查点（如 `jzx-ai-lab/HydraVox-CV3/llm.pt`）；分词器；输出目录（如 `checkpoints/training_llm`）
 - 3) 训练参数：batch size、学习率、轮数、保存步距、`logging_steps`、`eval_steps`
 - 4) 高级：启用 LoRA（可选）；精度 BF16/FP16（按模型类型推荐）
 - 5) 计算：设备 Auto/CPU/GPU；进程数（GPU 数）；可填 GPU IDs；可刷新设备检测
