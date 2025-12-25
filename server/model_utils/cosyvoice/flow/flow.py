@@ -359,20 +359,32 @@ class CausalMaskedDiffWithDiT(torch.nn.Module):
     def inference(self,
                   token,
                   token_len,
-                  prompt_token,
-                  prompt_token_len,
-                  prompt_feat,
-                  prompt_feat_len,
                   embedding,
-                  streaming,
-                  finalize):
+                  finalize,
+                  prompt_token=None,
+                  prompt_token_len=None,
+                  prompt_feat=None,
+                  prompt_feat_len=None,
+                  streaming=False):
+        if self.bf16 is True:
+            if prompt_feat is not None:
+                prompt_feat = prompt_feat.to(torch.bfloat16)
+            embedding = embedding.to(torch.bfloat16)
+        else:
+            if prompt_feat is not None:
+                prompt_feat = prompt_feat.to(torch.float16)
+            embedding = embedding.to(torch.float16)
+    
         assert token.shape[0] == 1
         # xvec projection
         embedding = F.normalize(embedding, dim=1)
         embedding = self.spk_embed_affine_layer(embedding)
 
         # concat text and prompt_text
-        token, token_len = torch.concat([prompt_token, token], dim=1), prompt_token_len + token_len
+        if prompt_token is not None and prompt_token_len is not None:
+            token, token_len = torch.concat([prompt_token, token], dim=1), prompt_token_len + token_len
+        else:
+            token, token_len = token, token_len
         mask = (~make_pad_mask(token_len)).unsqueeze(-1).to(embedding)
         token = self.input_embedding(torch.clamp(token, min=0)) * mask
 
@@ -382,11 +394,17 @@ class CausalMaskedDiffWithDiT(torch.nn.Module):
         else:
             h = self.pre_lookahead_layer(token[:, :-self.pre_lookahead_len], context=token[:, -self.pre_lookahead_len:])
         h = h.repeat_interleave(self.token_mel_ratio, dim=1)
-        mel_len1, mel_len2 = prompt_feat.shape[1], h.shape[1] - prompt_feat.shape[1]
+        if prompt_feat is not None and prompt_feat_len is not None:
+            mel_len1, mel_len2 = prompt_feat.shape[1], h.shape[1] - prompt_feat.shape[1]
+        else:
+            mel_len1, mel_len2 = 0, h.shape[1]
 
         # get conditions
         conds = torch.zeros([1, mel_len1 + mel_len2, self.output_size], device=token.device).to(h.dtype)
-        conds[:, :mel_len1] = prompt_feat
+        if prompt_feat is not None and prompt_feat_len is not None:
+            conds[:, :mel_len1] = prompt_feat
+        else:
+            conds[:, :mel_len1] = torch.zeros([1, mel_len1, self.output_size], device=token.device).to(h.dtype)
         conds = conds.transpose(1, 2)
 
         mask = (~make_pad_mask(torch.tensor([mel_len1 + mel_len2]))).to(h)

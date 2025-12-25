@@ -1007,7 +1007,18 @@ def convert_checkpoint_to_pt(folder_path_str: str):
                     return val
             return val
 
-        converted = {k: to_bf16_tensor(v) for k, v in state.items()}
+        if "core_model" in state and isinstance(state["core_model"], dict):
+            state = state["core_model"]
+
+        normalized = {}
+        for key, value in state.items():
+            if key == "core_model":
+                continue
+            if isinstance(key, str) and key.startswith("core_model."):
+                key = key[len("core_model.") :]
+            normalized[key] = value
+
+        converted = {k: to_bf16_tensor(v) for k, v in normalized.items()}
         out_path = base / "model.pt"
         torch.save(converted, str(out_path))
         return f"✅ 转换完成: {bin_path.name} → {out_path} (bf16)"
@@ -1074,12 +1085,12 @@ def create_training_tab():
                     )
                     model_checkpoint = gr.Textbox(
                         label="模型检查点路径",
-                        value="jzx-ai-lab/HydraVox/llm.pt",
+                        value="jzx-ai-lab/HydraVox-CV3/llm.pt",
                         placeholder="预训练模型路径"
                     )
                     tokenizer_path = gr.Textbox(
                         label="分词器路径",
-                        value="jzx-ai-lab/HydraVox/CosyVoice-BlankEN",
+                        value="jzx-ai-lab/HydraVox-CV3/CosyVoice-BlankEN",
                         placeholder="分词器模型路径"
                     )
                     output_dir = gr.Textbox(
@@ -1367,7 +1378,7 @@ def create_training_tab():
             batch_update = update_batch_size_constraints(model_type_val)
             precision_updates = update_precision_options(model_type_val)
             out_dir_value = "checkpoints/training_llm" if model_type_val == "llm" else "checkpoints/training_flow"
-            ckpt_value = "jzx-ai-lab/HydraVox/llm.pt" if model_type_val == "llm" else "jzx-ai-lab/HydraVox/flow.pt"
+            ckpt_value = "jzx-ai-lab/HydraVox-CV3/llm.pt" if model_type_val == "llm" else "jzx-ai-lab/HydraVox-CV3/flow.pt"
             return (batch_update,) + precision_updates + (gr.update(value=out_dir_value), gr.update(value=ckpt_value))
         
         model_type.change(

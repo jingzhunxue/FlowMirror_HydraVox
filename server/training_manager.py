@@ -100,8 +100,8 @@ class TrainingManager:
         # 必需参数 - 移除config参数，让脚本自动使用默认路径
         required_params = [
             f"--model {config.get('model_type', 'llm')}",
-            f"--model_ckpt {config.get('model_checkpoint', 'jzx-ai-lab/HydraVox/llm.pt')}",
-            f"--tokenizer_path {config.get('tokenizer_path', 'jzx-ai-lab/HydraVox/speech_tokenizer')}",
+            f"--model_ckpt {config.get('model_checkpoint', 'jzx-ai-lab/HydraVox-CV3/llm.pt')}",
+            f"--tokenizer_path {config.get('tokenizer_path', 'jzx-ai-lab/HydraVox-CV3/speech_tokenizer')}",
             f"--train_data {config.get('train_data', '')}",
             f"--output_dir {config.get('output_dir', 'checkpoints/training')}"
         ]

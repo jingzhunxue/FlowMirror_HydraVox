@@ -18,6 +18,8 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import random
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
@@ -41,8 +43,145 @@ sys.path.insert(0, str(third_party_dir))
 
 from server.model_utils.cosyvoice.tokenizer.tokenizer import get_qwen_tokenizer
 
+from fmtn import create_default_tn
+
+tn = create_default_tn(verbose=True)
 
 USEFUL_COLUMNS_LLM = ["text", "audio"]
+
+
+def _get_added_special_tokens(tokenizer: Any) -> set[str]:
+    """
+    从 CosyVoice2/3Tokenizer 中取出 additional_special_tokens 集合。
+    兼容：tokenizer 可能是自定义 wrapper（CosyVoice3Tokenizer），也可能是 HF tokenizer。
+    """
+    st = getattr(tokenizer, "special_tokens", None)
+    if isinstance(st, dict) and isinstance(st.get("additional_special_tokens"), list):
+        return set(st["additional_special_tokens"])
+    # fallback: HF tokenizer added vocab
+    tok = getattr(tokenizer, "tokenizer", None)
+    if tok is not None and hasattr(tok, "get_added_vocab"):
+        try:
+            return set(tok.get_added_vocab().keys())
+        except Exception:
+            return set()
+    return set()
+
+
+_RE_EN_WORD = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
+_RE_ZH_CHAR = re.compile(r"[\u4e00-\u9fff]")
+
+
+def _maybe_append_en_cmu_tokens(text: str, special_tokens: set[str]) -> str:
+    """
+    若文本存在英文单词：随机选 1 个英文单词，转为 CMU(ARPABET) 音素序列，并**替换原单词位置**为 tokenizer special token 形式：
+    e.g. "hello" -> "[HH] [AH0] [L] [OW1]"
+    依赖：cmudict（可选）。若不可用或查不到发音则返回原文本（不修改）。
+    """
+    matches = list(_RE_EN_WORD.finditer(text))
+    if not matches:
+        return text
+
+    # 随机挑 2 个英文单词（不足 2 个则全选）
+    picks = random.sample(matches, k=min(2, len(matches)))
+
+    def phones_for_word(w: str) -> List[str]:
+        w = w.lower()
+        # 1) cmudict（若可用）
+        try:
+            import cmudict  # type: ignore
+
+            d = cmudict.dict()
+            prons = d.get(w)
+            if prons:
+                return list(prons[0])
+        except Exception:
+            pass
+        # 2) pronouncing（常见，封装了 CMUdict）
+        try:
+            import pronouncing  # type: ignore
+
+            ps = pronouncing.phones_for_word(w)
+            if ps:
+                return ps[0].strip().split()
+        except Exception:
+            pass
+        return []
+
+    replacements: List[tuple[int, int, str]] = []
+    for m in picks:
+        word = m.group(0)
+        phones = phones_for_word(word)
+        if not phones:
+            continue
+        toks: List[str] = []
+        for p in phones:
+            tok = f"[{p}]"
+            if tok in special_tokens:
+                toks.append(tok)
+        if not toks:
+            continue
+        # special token 之间不加空格；但整体两侧加空格避免粘连
+        rep = " " + "".join(toks) + " "
+        replacements.append((m.start(), m.end(), rep))
+
+    if not replacements:
+        return text
+
+    # 从后往前替换，避免索引偏移
+    replacements.sort(key=lambda x: x[0], reverse=True)
+    for s, e, rep in replacements:
+        text = text[:s] + rep + text[e:]
+    return text
+
+
+def _maybe_append_zh_pinyin_tokens(text: str, special_tokens: set[str]) -> str:
+    """
+    从文本中随机选择 2 个中文汉字，转拼音并拆分声母/韵母，并**替换原汉字位置**为 tokenizer special token：
+    e.g. "中国" -> "[zh] [ōng] [g] [uó]"（示例，具体取决于 pypinyin 输出）
+    依赖：pypinyin（可选）。若不可用/中文字符不足则返回原文本（不修改）。
+    """
+    matches = list(_RE_ZH_CHAR.finditer(text))
+    if len(matches) < 2:
+        return text
+    picks = random.sample(matches, k=2)
+    try:
+        from pypinyin import Style, pinyin  # type: ignore
+    except Exception:
+        return text
+
+    replacements: List[tuple[int, int, str]] = []
+    for m in picks:
+        ch = m.group(0)
+        try:
+            ini = pinyin(ch, style=Style.INITIALS, strict=False, heteronym=False)[0][0] or ""
+            fin = pinyin(ch, style=Style.FINALS_TONE, strict=False, heteronym=False)[0][0] or ""
+        except Exception:
+            continue
+
+        # 仅当 token 在 tokenizer 中注册时才使用，避免产生无效 token
+        toks: List[str] = []
+        if ini:
+            t_ini = f"[{ini.lower()}]"
+            if t_ini in special_tokens:
+                toks.append(t_ini)
+        if fin:
+            t_fin = f"[{fin.lower()}]"
+            if t_fin in special_tokens:
+                toks.append(t_fin)
+        if toks:
+            # special token 之间不加空格；但整体两侧加空格避免粘连
+            rep = " " + "".join(toks) + " "
+            replacements.append((m.start(), m.end(), rep))
+
+    if not replacements:
+        return text
+
+    # 从后往前替换，避免索引偏移
+    replacements.sort(key=lambda x: x[0], reverse=True)
+    for s, e, rep in replacements:
+        text = text[:s] + rep + text[e:]
+    return text
 
 
 def prepare_dataset_llm_pretrain(ds: Dataset) -> Dataset:
@@ -162,8 +301,18 @@ class LlmPretrainDataCollator:
         elif "text" in features[0]:
             if self.tokenizer is None:
                 raise ValueError("数据只有 text 字段但未提供 tokenizer，无法生成 text_token。")
+            special_tokens = _get_added_special_tokens(self.tokenizer)
             for f in features:
-                ids = self.tokenizer.encode(f["text"], allowed_special="all")
+                text = tn.process_text(f["text"])
+
+                # 优先：若存在英文单词，随机抽 1 个转 CMU 音素；否则随机抽 2 个中文汉字转拼音(声母/韵母)
+                new_text = _maybe_append_en_cmu_tokens(text, special_tokens)
+                if new_text == text:
+                    new_text = _maybe_append_zh_pinyin_tokens(text, special_tokens)
+                text = new_text
+                if os.getenv("DEBUG_TEXT_AUG", "0") == "1":
+                    print(text)
+                ids = self.tokenizer.encode(text, allowed_special="all")
                 tt = torch.tensor(ids, dtype=torch.long)
                 text_tokens.append(tt)
                 text_token_lens.append(int(tt.numel()))
@@ -254,7 +403,7 @@ def main():
     parser.add_argument(
         "--tokenizer_onnx_path",
         type=str,
-        default="jzx-ai-lab/HydraVox/speech_tokenizer_v2.onnx",
+        default="jzx-ai-lab/HydraVox-CV3/speech_tokenizer_v3.onnx",
         help="speech tokenizer ONNX 路径（从音频实时提取 speech_token）",
     )
     parser.add_argument("--onnx_use_cuda", action="store_true", default=True, help="ONNX tokenizer 是否使用 CUDAExecutionProvider")
@@ -283,7 +432,7 @@ def main():
     # 1) load yaml & build model
     with open(args.config, "r") as f:
         if not args.qwen_pretrain_path:
-            model_dir = os.getenv("TTS_MODEL_DIR", "jzx-ai-lab/HydraVox")
+            model_dir = os.getenv("TTS_MODEL_DIR", "jzx-ai-lab/HydraVox-CV3")
             args.qwen_pretrain_path = os.path.join(model_dir, "CosyVoice-BlankEN")
         cfg = load_hyperpyyaml(
             f,

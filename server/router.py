@@ -23,6 +23,7 @@ class ZeroShotRequest(BaseModel):
         "top_k": 10,
         "win_size": 32,
         "tau_r": 0.2,
+        "speed": 1.0,
         "inference_head_num":2
     }
 
@@ -37,6 +38,7 @@ class TTSRequest(BaseModel):
         "top_k": 10,
         "win_size": 24,
         "tau_r": 0.2,
+        "speed": 1.0,
         "inference_head_num":2
     }
 
@@ -51,6 +53,7 @@ class RAGRequest(BaseModel):
         "top_k": 10,
         "win_size": 32,
         "tau_r": 0.2,
+        "speed": 1.0,
         "inference_head_num":2
     }
 

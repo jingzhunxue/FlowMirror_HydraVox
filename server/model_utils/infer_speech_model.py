@@ -7,6 +7,7 @@ import time
 import logging
 import random
 import torch
+import torch.nn.functional as F
 import torchaudio
 import base64
 import io
@@ -98,20 +99,23 @@ class ModelManager:
             logger.info("将模型移动到GPU...")
             if args.bf16:
                 llm.eval().cuda().to(torch.bfloat16)
+                flow.eval().cuda().to(torch.bfloat16)
+                hift.eval().cuda()
                 llm.bf16 = True
-                logger.info("LLM使用BF16精度")
-            else:
-                llm.eval().cuda()
-            
-            if args.fp16:
-                flow.eval().cuda().half()
-                flow.fp16 = True
-                logger.info("Flow使用FP16精度")
-            else:
+                flow.bf16 = True
+                llm.fp16 = False
                 flow.fp16 = False
-                flow.eval().cuda()
+                logger.info("使用BF16精度")
+            else:
+                llm.eval().cuda().to(torch.float16)
+                flow.eval().cuda().to(torch.float16)
+                hift.eval().cuda()
+                llm.fp16 = True
+                flow.fp16 = True
+                llm.bf16 = False
+                flow.bf16 = False
+                logger.info("使用FP16精度")
             
-            hift.eval().cuda()
         else:
             logger.info("使用CPU进行推理...")
             llm.eval()
@@ -142,7 +146,7 @@ class ModelManager:
         logger.info("初始化前端处理器...")
         
         campplus_path = os.path.join(args.model_dir, 'campplus.onnx')
-        speech_tokenizer_path = os.path.join(args.model_dir, 'speech_tokenizer_v2.onnx')
+        speech_tokenizer_path = os.path.join(args.model_dir, 'speech_tokenizer_v3.onnx')
         spk2info_path = os.path.join(args.model_dir, 'spk2info.pt')
         
         # 验证前端组件文件存在
@@ -167,9 +171,11 @@ class ModelManager:
             self.models['llm'].load_state_dict(torch.load(llm_pt, map_location='cpu'))
             self.models['llm'].eval().cuda().to(torch.bfloat16)
             self.models['llm'].bf16 = True
+            self.models['llm'].fp16 = False
             self.models['flow'].load_state_dict(torch.load(flow_pt, map_location='cpu'))
             self.models['flow'].eval().cuda().half()
             self.models['flow'].fp16 = True
+            self.models['flow'].bf16 = False
             logger.info("模型权重加载完成")
             return {"status": "success", "message": "模型权重加载完成"}
         except Exception as e:
@@ -347,7 +353,7 @@ def merge_short_segments(segments: list, min_length: int = 5) -> list:
     return merged_segments
 
 
-def inference_tts_with_segmentation(model_manager, text: str, spk_id: str, max_length: int = 30, min_length: int = 10, last_prompt: bool = True) -> torch.Tensor:
+def inference_tts_with_segmentation(model_manager, text: str, spk_id: str, max_length: int = 30, min_length: int = 10, last_prompt: bool = True, speed: float = 1.0) -> torch.Tensor:
     """
     带文本分割的TTS推理
     第一段使用speaker做正常TTS，后续段落使用上一个片段作为提示进行zero shot合成
@@ -372,7 +378,7 @@ def inference_tts_with_segmentation(model_manager, text: str, spk_id: str, max_l
     
     if len(segments) == 1:
         # 只有一个片段，直接推理
-        return inference_tts(text, spk_id)
+        return inference_tts(model_manager, text, spk_id, speed=speed)
     
     # 多个片段处理
     audio_segments = []
@@ -385,7 +391,7 @@ def inference_tts_with_segmentation(model_manager, text: str, spk_id: str, max_l
             if i == 0 or not last_prompt:
                 # 第一段或禁用last_prompt时：使用speaker做正常TTS
                 logger.info(f"第{i+1}段使用TTS合成")
-                segment_audio = inference_tts(model_manager, segment, spk_id)
+                segment_audio = inference_tts(model_manager, segment, spk_id, speed=speed)
                 prev_segment_text = segment
                 prev_segment_audio = segment_audio
                 audio_segments.append(segment_audio)
@@ -397,7 +403,8 @@ def inference_tts_with_segmentation(model_manager, text: str, spk_id: str, max_l
                     tts_text=segment,
                     prompt_text=prev_segment_text,
                     prompt_audio=prev_segment_audio,
-                    prompt_sample_rate=24000
+                    prompt_sample_rate=24000,
+                    speed=speed
                 )
                 # 更新提示为当前片段，供下一个片段使用
                 prev_segment_text = segment
@@ -506,7 +513,7 @@ def audio_to_base64(audio_tensor: torch.Tensor, sample_rate: int, format: str = 
     except Exception as e:
         raise ValueError(f"音频转base64失败: {e}")
 
-def inference_zero_shot(model_manager, tts_text: str, prompt_text: str, prompt_audio: torch.Tensor, prompt_sample_rate: int) -> torch.Tensor:
+def inference_zero_shot(model_manager, tts_text: str, prompt_text: str, prompt_audio: torch.Tensor, prompt_sample_rate: int, speed: float = 1.0) -> torch.Tensor:
     """执行零样本推理"""
     if not model_manager.is_loaded:
         raise ValueError("模型未加载")
@@ -516,8 +523,7 @@ def inference_zero_shot(model_manager, tts_text: str, prompt_text: str, prompt_a
         processed_prompt_text = model_manager.frontend.text_normalize(prompt_text, split=False, text_frontend=True)
         processed_tts_text = model_manager.frontend.text_normalize(tts_text, split=True, text_frontend=True)
         
-        if prompt_sample_rate != 16000:
-            prompt_audio = torchaudio.transforms.Resample(orig_freq=prompt_sample_rate, new_freq=16000)(prompt_audio.cpu())
+        prompt_audio = (prompt_audio, prompt_sample_rate)
 
         logger.info(f"提示文本: {processed_prompt_text}")
         logger.info(f"合成文本: {processed_tts_text}")
@@ -567,14 +573,14 @@ def inference_zero_shot(model_manager, tts_text: str, prompt_text: str, prompt_a
             finalize=True
         )
         
+        if speed <= 0:
+            raise ValueError(f"Invalid speed: {speed}")
+        if speed != 1.0:
+            tts_mel = F.interpolate(tts_mel, size=max(1, int(tts_mel.shape[2] / speed)), mode='linear')
+
         # Hift推理
-        hift_cache_source = torch.zeros(1, 1, 0)
-        if model_manager.device == "cuda":
-            hift_cache_source = hift_cache_source.cuda()
-        
         tts_speech, tts_source = model_manager.models['hift'].inference(
             speech_feat=tts_mel, 
-            cache_source=hift_cache_source
         )
         
         total_time = time.time() - start_time
@@ -588,7 +594,7 @@ def inference_zero_shot(model_manager, tts_text: str, prompt_text: str, prompt_a
         logger.error(f"零样本推理失败: {e}")
         raise ValueError(f"零样本推理失败: {e}")
 
-def inference_tts(model_manager, text: str, spk_id: str) -> torch.Tensor:
+def inference_tts(model_manager, text: str, spk_id: str, speed: float = 1.0) -> torch.Tensor:
     """执行零样本推理"""
     if not model_manager.is_loaded:
         raise ValueError("模型未加载")
@@ -637,42 +643,19 @@ def inference_tts(model_manager, text: str, spk_id: str) -> torch.Tensor:
             finalize=True
         )
         
+        if speed <= 0:
+            raise ValueError(f"Invalid speed: {speed}")
+        if speed != 1.0:
+            tts_mel = F.interpolate(tts_mel, size=max(1, int(tts_mel.shape[2] / speed)), mode='linear')
+
         # Hift推理
-        hift_cache_source = torch.zeros(1, 1, 0)
-        if model_manager.device == "cuda":
-            hift_cache_source = hift_cache_source.cuda()
-        
         tts_speech, tts_source = model_manager.models['hift'].inference(
             speech_feat=tts_mel, 
-            cache_source=hift_cache_source
         )
         total_time = time.time() - start_time
         torch.cuda.empty_cache()
         audio_length = tts_speech.shape[-1] / 24000
         logger.info(f"推理完成，总时间: {total_time:.2f}s, TPS: {tps:.2f}, RTF: {total_time / audio_length:.2f}")
-        
-        tts_speech = tts_speech.cpu()
-
-        tts_speech_16k = torchaudio.functional.resample(tts_speech, 24000, 16000)
-
-        speaker_embedding = model_manager.frontend.spk2info[spk_id]['embedding']
-
-        generated_embedding = model_manager.frontend._extract_spk_embedding(tts_speech_16k).squeeze(0)
-
-        cosine_sim = torch.nn.functional.cosine_similarity(generated_embedding, speaker_embedding, dim=0)
-
-        if cosine_sim.item() < 0.55 and model_manager.zero_shot_speakers is not None:
-            logger.warning(f"cosine_sim: {cosine_sim}, fallback to zero-shot")
-            prompt_text = model_manager.zero_shot_speakers[spk_id]['prompt_text']
-            prompt_audio = model_manager.zero_shot_speakers[spk_id]['prompt_speech']
-            prompt_sample_rate = model_manager.zero_shot_speakers[spk_id]['prompt_speech_sample_rate']
-            tts_speech = inference_zero_shot(
-                model_manager,
-                text,
-                prompt_text,
-                prompt_audio,
-                prompt_sample_rate
-            )
 
         return tts_speech.cpu()
         
@@ -682,7 +665,7 @@ def inference_tts(model_manager, text: str, spk_id: str) -> torch.Tensor:
         logger.error(f"TTS推理失败: {e}")
         raise ValueError(f"TTS推理失败: {e}")
 
-def zero_shot_tts(model_manager, tts_text, prompt_text, prompt_audio):
+def zero_shot_tts(model_manager, tts_text, prompt_text, prompt_audio, speed: float = 1.0):
     """
     零样本语音合成接口
     
@@ -717,7 +700,8 @@ def zero_shot_tts(model_manager, tts_text, prompt_text, prompt_audio):
             tts_text,
             prompt_text,
             prompt_audio,
-            prompt_sample_rate
+            prompt_sample_rate,
+            speed=speed
         )
         
         return {
@@ -733,7 +717,7 @@ def zero_shot_tts(model_manager, tts_text, prompt_text, prompt_audio):
         logger.error(f"零样本合成失败: {e}")
         raise ValueError(f"零样本合成失败: {e}")
 
-def text_to_speech(model_manager, text, speaker_id):
+def text_to_speech(model_manager, text, speaker_id, speed: float = 1.0):
     """
     文本到语音合成接口
     
@@ -781,7 +765,8 @@ def text_to_speech(model_manager, text, speaker_id):
                 speaker_id,
                 max_length=30,
                 min_length=10,
-                last_prompt=False
+                last_prompt=False,
+                speed=speed
             )
             # 获取分段信息用于响应
             segments = split_text_by_punctuation(text, 30, 10)
@@ -795,7 +780,8 @@ def text_to_speech(model_manager, text, speaker_id):
             output_audio = inference_tts(
                 model_manager,
                 text,
-                speaker_id
+                speaker_id,
+                speed=speed
             )
 
         total_time = time.time() - start_time

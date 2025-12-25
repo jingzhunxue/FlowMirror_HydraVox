@@ -1,13 +1,20 @@
 import os
+import random
 from pathlib import Path
 from typing import Dict, Any, Tuple
 
 import gradio as gr
 import torch
+import torchaudio
 import pandas as pd
+import numpy as np
 
 
-DEFAULT_REL_SPK2INFO = "jzx-ai-lab/HydraVox/spk2info.pt"
+DEFAULT_REL_SPK2INFO = "jzx-ai-lab/HydraVox-CV3/spk2info.pt"
+DEFAULT_SV_MODEL_PATH = "jzx-ai-lab/speech_campplus_sv_zh-cn_16k-common"
+
+_SV_PIPE = None
+_SV_PIPE_KEY = None
 
 
 def _project_root() -> Path:
@@ -83,6 +90,50 @@ def _spk2info_to_df(spk2info: Dict[str, Dict[str, torch.Tensor]]) -> pd.DataFram
     return pd.DataFrame(rows).sort_values("speaker_name").reset_index(drop=True)
 
 
+def _get_speaker_verification_pipe(model_path: str, device: str):
+    global _SV_PIPE, _SV_PIPE_KEY
+    key = f"{model_path}|dev={device}"
+    if _SV_PIPE is not None and _SV_PIPE_KEY == key:
+        return _SV_PIPE
+    from modelscope.pipelines import pipeline  # type: ignore
+
+    _SV_PIPE = pipeline(task="speaker-verification", model=model_path, model_revision="v1.0.0", device=device)
+    _SV_PIPE_KEY = key
+    return _SV_PIPE
+
+
+def _load_audio_mono(audio_info: Any, target_sr: int) -> torch.Tensor:
+    if isinstance(audio_info, dict) and "array" in audio_info:
+        wav = torch.tensor(audio_info["array"], dtype=torch.float32)
+        sr = int(audio_info.get("sampling_rate", target_sr))
+        if wav.dim() == 1:
+            wav = wav.unsqueeze(0)
+        elif wav.dim() == 2 and wav.size(0) > 1:
+            wav = wav.mean(dim=0, keepdim=True)
+        if sr != target_sr:
+            wav = torchaudio.transforms.Resample(sr, target_sr)(wav)
+        return wav
+
+    if isinstance(audio_info, dict) and "path" in audio_info:
+        path = audio_info["path"]
+    else:
+        path = str(audio_info)
+    wav, sr = torchaudio.load(path)
+    if wav.dim() == 2 and wav.size(0) > 1:
+        wav = wav.mean(dim=0, keepdim=True)
+    if sr != target_sr:
+        wav = torchaudio.transforms.Resample(sr, target_sr)(wav)
+    return wav.to(torch.float32)
+
+
+def _extract_embedding_from_audio(audio_info: Any, sv_pipe) -> np.ndarray:
+    wav_16k = _load_audio_mono(audio_info, target_sr=16000)
+    wav_np = wav_16k.squeeze(0).cpu().numpy().astype(np.float32)
+    out = sv_pipe([wav_np], output_emb=True)
+    emb = np.array(out["embs"][0], dtype=np.float32)
+    return emb
+
+
 def _compute_mean_embedding_from_dataset(ds_path: str) -> Tuple[str, torch.Tensor | None]:
     if not ds_path:
         return "请输入数据集路径", None
@@ -96,16 +147,30 @@ def _compute_mean_embedding_from_dataset(ds_path: str) -> Tuple[str, torch.Tenso
     except Exception as e:
         return f"加载数据集失败: {e}", None
 
-    if "embedding" not in ds.column_names:
-        return "数据集中未找到 'embedding' 列", None
+    use_audio_fallback = "embedding" not in ds.column_names
+    if use_audio_fallback and "audio" not in ds.column_names:
+        return "数据集中未找到 'embedding' 或 'audio' 列", None
+
+    sv_pipe = None
+    if use_audio_fallback:
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        sv_pipe = _get_speaker_verification_pipe(DEFAULT_SV_MODEL_PATH, device=device)
+        try:
+            if len(ds) > 5000:
+                ds = ds.shuffle(seed=42).select(range(5000))
+        except Exception:
+            pass
 
     total = None
     count = 0
     try:
         for row in ds:
-            emb = row["embedding"]
-            if emb is None:
-                continue
+            if use_audio_fallback:
+                emb = _extract_embedding_from_audio(row["audio"], sv_pipe)
+            else:
+                emb = row["embedding"]
+                if emb is None:
+                    continue
             t = torch.tensor(emb, dtype=torch.float32)
             if t.dim() == 0:
                 continue
@@ -117,9 +182,18 @@ def _compute_mean_embedding_from_dataset(ds_path: str) -> Tuple[str, torch.Tenso
                 total += t
             count += 1
         if total is None or count == 0:
+            if use_audio_fallback:
+                return "未从音频提取到有效的 embedding", None
             return "未获取到有效的 embedding", None
         mean = (total / float(count)).view(-1)
-        return f"样本数: {count}, 维度: {mean.numel()}, L2范数: {mean.norm().item():.6f}", mean
+        info = f"样本数: {count}, 维度: {mean.numel()}, L2范数: {mean.norm().item():.6f}"
+        if use_audio_fallback:
+            try:
+                if len(ds) == 5000:
+                    info = f"{info}（已随机抽取 5000 条音频）"
+            except Exception:
+                pass
+        return info, mean
     except Exception as e:
         return f"计算均值失败: {e}", None
 
@@ -129,7 +203,7 @@ def create_speaker_manage_tab():
         gr.Markdown("""
         # 🗣️ 说话人库管理
 
-        - 预加载/保存路径：`jzx-ai-lab/HydraVox/spk2info.pt`
+        - 预加载/保存路径：`jzx-ai-lab/HydraVox-CV3/spk2info.pt`
         - 查看已有 speaker，加载数据集计算 `embedding` 均值，新增/覆盖 speaker
         """)
 
@@ -212,5 +286,3 @@ def create_speaker_manage_tab():
             inputs=[spk2info_state, last_mean_state, speaker_name_tb, spk_path_tb],
             outputs=[spk2info_state, spk_table, mean_info_tb],
         )
-
-

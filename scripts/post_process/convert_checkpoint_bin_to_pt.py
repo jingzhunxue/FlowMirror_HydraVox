@@ -46,6 +46,8 @@ def normalize_state_dict(state_dict: Dict[str, Any]) -> Dict[str, Any]:
 
     normalized = {}
     for key, value in state_dict.items():
+        if key == "core_model":
+            continue
         if isinstance(key, str) and key.startswith("core_model."):
             stripped = key[len("core_model.") :]
         else:
