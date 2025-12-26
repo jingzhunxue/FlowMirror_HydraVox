@@ -35,8 +35,14 @@ from server.model_utils.cosyvoice.tokenizer.tokenizer import get_qwen_tokenizer
 from matcha.utils.audio import mel_spectrogram
 from modelscope.pipelines import pipeline
 from fmtn import create_default_tn
+import multiprocessing
+multiprocessing.set_start_method("spawn", force=True)
 
-tn = create_default_tn(verbose=True)
+try:
+    tn = create_default_tn(verbose=True)
+except Exception:
+    print("Failed to load text normalization library")
+    tn = None
 
 USEFUL_COLUMNS_LLM = ["text", "text_token", "audio"]
 USEFUL_COLUMNS_FLOW = ["audio", "speech_token", "embedding"]
@@ -52,9 +58,7 @@ def _load_state_dict_maybe_container(path: str) -> Dict[str, torch.Tensor]:
 
 
 def _maybe_get_default_config(model_type: str) -> str:
-    if model_type == "llm":
-        return "pretrained_models/Fun-CosyVoice3-0.5B/cosyvoice3_mtp_pretrain.yaml"
-    return "pretrained_models/Fun-CosyVoice3-0.5B/cosyvoice3.yaml"
+    return "jzx-ai-lab/HydraVox-CV3/hydravox.yaml"
 
 
 def _resolve_onnx_device_id(value: int | None) -> int:
@@ -304,7 +308,7 @@ def _extract_mel_24k(audio_info: Any) -> torch.Tensor:
     wav_24k = _load_audio_mono(audio_info, target_sr=24000)
     if (wav_24k.shape[-1] - 480) // 480 % 2 == 0:
         wav_24k = torch.nn.functional.pad(wav_24k, (0, 480))
-    mel = mel_spectrogram(wav_24k, 1920, 80, 24000, 480, 1920, 0, 8000, False)
+    mel = mel_spectrogram(wav_24k, 1920, 80, 24000, 480, 1920, 0, None, False)
     return mel.squeeze(0).transpose(0, 1).to(torch.float32)
 
 
@@ -349,7 +353,10 @@ class LlmPretrainDataCollator:
                 raise ValueError("数据只有 text 字段但未提供 tokenizer，无法生成 text_token。")
             special_tokens = _get_added_special_tokens(self.tokenizer)
             for f in features:
-                text = tn.process_text(f["text"])
+                if tn is not None:
+                    text = tn.process_text(f["text"])
+                else:
+                    text = f["text"]
                 new_text = _maybe_append_en_cmu_tokens(text, special_tokens)
                 if new_text == text:
                     new_text = _maybe_append_zh_pinyin_tokens(text, special_tokens)
@@ -580,10 +587,10 @@ def main() -> None:
     parser.add_argument("--save_steps", type=int, default=None)
     parser.add_argument("--save_total_limit", type=int, default=None)
     parser.add_argument("--warmup_steps", type=int, default=None)
-    parser.add_argument("--bf16", action="store_true", default=True)
+    parser.add_argument("--bf16", action="store_true", default=False)
     parser.add_argument("--fp16", action="store_true", default=False)
     parser.add_argument("--deepspeed", type=str, default=None)
-    parser.add_argument("--dataloader_num_workers", type=int, default=4)
+    parser.add_argument("--dataloader_num_workers", type=int, default=1)
 
     parser.add_argument("--enable_lora", action="store_true", default=False)
     parser.add_argument("--lora_r", type=int, default=64)

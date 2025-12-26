@@ -115,14 +115,11 @@ logs/                    # train/infer logs
 ## Roadmap
 
 ...
-* [ ] 2025/10
-  - [ ] Stream inference support for HydraVox
+* 2026/01
   - [ ] DeepSeek-style Multi-Token Prediction module for HydraVox to enable more powerful and stable inference
-  
-* [ ] 2025/09
   - [ ] Flow-matching core update introducing a TTS-tailored paradigm
 
-* [ ] 2025/08
+* [ ] 2025/12
   - [X] Release training UI tab and training scripts
   - [ ] Release LoRA hot-load and inference with pretrained emotion LoRA
 ---
