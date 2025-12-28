@@ -229,6 +229,10 @@ _TOKENIZER_SESSION_KEY: str | None = None
 _SV_PIPE: Any | None = None
 _SV_PIPE_KEY: str | None = None
 
+# speech_token 抽取兜底池：跨 batch 缓存成功样本，用于“全 batch 失败”时随机回退
+_SPEECH_TOKEN_POOL: List[torch.Tensor] = []
+_SPEECH_TOKEN_POOL_MAX: int = int(os.getenv("SPEECH_TOKEN_POOL_MAX", "256"))
+
 
 def _get_onnx_tokenizer_session(
     onnx_path: str,
@@ -302,6 +306,112 @@ def _extract_speech_token_from_audio(audio_info: Any, onnx_session: ort.Inferenc
     }
     tokens = onnx_session.run(None, ort_inputs)[0].flatten().tolist()
     return tokens
+
+
+def _audio_ref(audio_info: Any) -> str:
+    """用于日志打印的音频引用，避免打印过大对象。"""
+    try:
+        if isinstance(audio_info, dict):
+            if "path" in audio_info:
+                return f"path={audio_info.get('path')}"
+            if "array" in audio_info:
+                arr = audio_info.get("array")
+                sr = audio_info.get("sampling_rate", None)
+                n = len(arr) if hasattr(arr, "__len__") else "?"
+                return f"array(len={n},sr={sr})"
+        return str(audio_info)
+    except Exception:
+        return "<audio>"
+
+
+def _extract_speech_tokens_with_batch_fallback(
+    features: List[Dict[str, Any]],
+    onnx_session: ort.InferenceSession,
+) -> tuple[List[torch.Tensor], List[int]]:
+    """
+    从 batch 中逐条提取 speech_token。
+    若某条音频提取失败（例如 ONNX Gather indices 越界），则回退为同 batch 内其它成功样本的 token，确保训练不中断。
+    """
+    global _SPEECH_TOKEN_POOL, _SPEECH_TOKEN_POOL_MAX
+    speech_tokens: List[torch.Tensor | None] = [None] * len(features)
+    speech_token_lens: List[int] = [0] * len(features)
+
+    first_ok: torch.Tensor | None = None
+    last_ok: torch.Tensor | None = None
+    first_err: Exception | None = None
+
+    for i, f in enumerate(features):
+        try:
+            tokens = _extract_speech_token_from_audio(f["audio"], onnx_session)
+            st = torch.tensor(tokens, dtype=torch.long)
+            speech_tokens[i] = st
+            speech_token_lens[i] = int(st.numel())
+            if first_ok is None:
+                first_ok = st
+            last_ok = st
+
+            # 加入跨 batch 的成功池，供“全 batch 失败”时随机兜底
+            try:
+                if _SPEECH_TOKEN_POOL_MAX > 0:
+                    _SPEECH_TOKEN_POOL.append(st.detach().cpu())
+                    if len(_SPEECH_TOKEN_POOL) > _SPEECH_TOKEN_POOL_MAX:
+                        # 简单 FIFO
+                        _SPEECH_TOKEN_POOL = _SPEECH_TOKEN_POOL[-_SPEECH_TOKEN_POOL_MAX :]
+            except Exception:
+                pass
+        except Exception as e:
+            if first_err is None:
+                first_err = e
+            logging.warning(
+                "speech_token 提取失败，将使用 batch 内其它样本回退替代（idx=%s, audio=%s, err=%s: %s）",
+                i,
+                _audio_ref(f.get("audio")),
+                e.__class__.__name__,
+                str(e)[:500],
+            )
+            speech_tokens[i] = None
+
+    if first_ok is None:
+        # 兜底 1：从历史成功池（跨 batch）里随机抽一个 token
+        if _SPEECH_TOKEN_POOL:
+            pick = random.choice(_SPEECH_TOKEN_POOL)
+            pick_len = int(pick.numel())
+            logging.error(
+                "本 batch 所有音频 speech_token 提取均失败，已从历史成功池随机抽取兜底继续训练（pool=%s, pick_len=%s, err=%s: %s）",
+                len(_SPEECH_TOKEN_POOL),
+                pick_len,
+                first_err.__class__.__name__ if first_err is not None else "UnknownError",
+                str(first_err)[:500] if first_err is not None else "",
+            )
+            bsz = len(features)
+            return [pick] * bsz, [pick_len] * bsz
+
+        # 兜底 2：历史池也为空（例如开局连续失败），使用最小占位 token，保证训练不中断
+        fallback_id = int(os.getenv("SPEECH_TOKEN_FALLBACK_ID", "0"))
+        fallback_len = int(os.getenv("SPEECH_TOKEN_FALLBACK_LEN", "1"))
+        fallback_len = max(1, fallback_len)
+        fb = torch.full((fallback_len,), fallback_id, dtype=torch.long)
+        logging.error(
+            "本 batch 所有音频 speech_token 提取均失败，且历史成功池为空，已使用占位 token 兜底继续训练（fallback_id=%s, fallback_len=%s, err=%s: %s）",
+            fallback_id,
+            fallback_len,
+            first_err.__class__.__name__ if first_err is not None else "UnknownError",
+            str(first_err)[:500] if first_err is not None else "",
+        )
+        bsz = len(features)
+        return [fb] * bsz, [fallback_len] * bsz
+
+    # 用“最近成功的”优先回退；如果失败发生在开头，则用第一个成功的。
+    fallback = first_ok
+    for i in range(len(features)):
+        if speech_tokens[i] is None:
+            use = last_ok if last_ok is not None else fallback
+            speech_tokens[i] = use
+            speech_token_lens[i] = int(use.numel())
+        else:
+            last_ok = speech_tokens[i]
+
+    return [t for t in speech_tokens if t is not None], speech_token_lens
 
 
 def _extract_mel_24k(audio_info: Any) -> torch.Tensor:
@@ -382,13 +492,7 @@ class LlmPretrainDataCollator:
             device_id=self.onnx_device_id,
             intra_op_num_threads=self.ort_intra_op_num_threads,
         )
-        speech_tokens: List[torch.Tensor] = []
-        speech_token_lens: List[int] = []
-        for f in features:
-            tokens = _extract_speech_token_from_audio(f["audio"], onnx_session)
-            st = torch.tensor(tokens, dtype=torch.long)
-            speech_tokens.append(st)
-            speech_token_lens.append(int(st.numel()))
+        speech_tokens, speech_token_lens = _extract_speech_tokens_with_batch_fallback(features, onnx_session)
         batch["speech_token"] = pad_sequence(speech_tokens, batch_first=True, padding_value=0)
         batch["speech_token_len"] = torch.tensor(speech_token_lens, dtype=torch.int64)
 
@@ -468,11 +572,7 @@ class FlowPretrainDataCollator:
                 device_id=self.onnx_device_id,
                 intra_op_num_threads=self.ort_intra_op_num_threads,
             )
-            for f in features:
-                tokens = _extract_speech_token_from_audio(f["audio"], onnx_session)
-                st = torch.tensor(tokens, dtype=torch.long)
-                speech_tokens.append(st)
-                speech_token_lens.append(int(st.numel()))
+            speech_tokens, speech_token_lens = _extract_speech_tokens_with_batch_fallback(features, onnx_session)
         batch["speech_token"] = pad_sequence(speech_tokens, batch_first=True, padding_value=0)
         batch["speech_token_len"] = torch.tensor(speech_token_lens, dtype=torch.int64)
 
@@ -590,7 +690,7 @@ def main() -> None:
     parser.add_argument("--bf16", action="store_true", default=False)
     parser.add_argument("--fp16", action="store_true", default=False)
     parser.add_argument("--deepspeed", type=str, default=None)
-    parser.add_argument("--dataloader_num_workers", type=int, default=1)
+    parser.add_argument("--dataloader_num_workers", type=int, default=6)
 
     parser.add_argument("--enable_lora", action="store_true", default=False)
     parser.add_argument("--lora_r", type=int, default=64)
@@ -602,7 +702,7 @@ def main() -> None:
     parser.add_argument("--sv_model_path", type=str, default="jzx-ai-lab/speech_campplus_sv_zh-cn_16k-common")
     parser.add_argument("--sv_device", type=str, default="")
     parser.add_argument("--no_online_embedding", action="store_true", default=False)
-    parser.add_argument("--onnx_use_cuda", action="store_true", default=True)
+    parser.add_argument("--onnx_use_cuda", action="store_true", default=False)
     parser.add_argument("--onnx_device_id", type=int, default=None)
     parser.add_argument("--ort_intra_op_num_threads", type=int, default=1)
     args, _ = parser.parse_known_args()
