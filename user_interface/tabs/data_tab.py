@@ -105,10 +105,6 @@ def _asr_script_path() -> Path:
     return _project_root() / "scripts/preprocess/transcribe_to_dataset.py"
 
 
-def _token_script_path() -> Path:
-    return _project_root() / "scripts/preprocess/extract_speech_token_dataset.py"
-
-
 def _generate_default_output_dir(input_dir: str, suffix: str) -> str:
     if not input_dir:
         return ""
@@ -409,20 +405,19 @@ def preview_stage3(input_dir: str, output_dir: str):
 def run_stage3(input_dir: str,
                output_dir: str,
                device_choice: str,
-               num_processes: float,
-               link_enabled: bool):
+               num_processes: float):
     """运行 ASR 转录脚本。
-    输出：(progress_percent, status_text, log_text, next_stage_input)
+    输出：(progress_percent, status_text, log_text)
     """
     if not input_dir or not os.path.isdir(input_dir):
-        yield 0, "❗ 输入目录无效", "", gr.update()
+        yield 0, "❗ 输入目录无效", ""
         return
     if not output_dir:
         output_dir = _generate_default_output_dir(input_dir, "_asr")
 
     script_path = _asr_script_path()
     if not script_path.exists():
-        yield 0, f"找不到脚本: {script_path}", "", gr.update()
+        yield 0, f"找不到脚本: {script_path}", ""
         return
 
     # 设备与进程选择
@@ -470,7 +465,7 @@ def run_stage3(input_dir: str,
             universal_newlines=True,
         )
     except Exception as e:
-        yield 0, f"启动失败: {e}", "", gr.update()
+        yield 0, f"启动失败: {e}", ""
         return
 
     start_time = time.time()
@@ -482,7 +477,7 @@ def run_stage3(input_dir: str,
     worker_pct = {}
     num_workers_detected = None
 
-    yield 0, "ASR 转录中...", "", gr.update()
+    yield 0, "ASR 转录中...", ""
 
     try:
         assert proc.stdout is not None
@@ -547,131 +542,6 @@ def run_stage3(input_dir: str,
 
             elapsed = int(time.time() - start_time)
             status = f"进行中 · 用时 {elapsed}s"
-            yield (last_pct if last_pct >= 0 else 0), status, "\n".join(log_lines), gr.update()
-
-        ret = proc.wait()
-    except Exception as e:
-        yield (last_pct if last_pct >= 0 else 0), f"❌ 运行异常: {e}", "\n".join(log_lines), gr.update()
-        return
-
-    elapsed = int(time.time() - start_time)
-    if proc.returncode == 0:
-        msg = f"✅ 完成 · 用时 {elapsed}s"
-        next_input = output_dir if link_enabled else gr.update()
-        yield 100, msg, "\n".join(log_lines), next_input
-    else:
-        yield (last_pct if last_pct >= 0 else 0), f"❌ 失败 · 用时 {elapsed}s", "\n".join(log_lines), gr.update()
-
-
-
-def preview_stage4(input_dir: str, output_dir: str):
-    if not input_dir or not os.path.isdir(input_dir):
-        return "❗ 输入目录无效（需要 Stage3 生成的 HuggingFace 数据集目录）"
-    if not output_dir:
-        output_dir = _generate_default_output_dir(input_dir, "_token")
-    try:
-        from datasets import load_from_disk  # type: ignore
-        ds = load_from_disk(str(input_dir))
-        return f"将处理 {len(ds)} 个样本，输出至 {output_dir}"
-    except Exception:
-        return f"将尝试处理输入数据集，输出至 {output_dir}"
-
-
-def run_stage4(input_dir: str,
-               output_dir: str,
-               device_choice: str,
-               num_processes: float):
-    """运行 Token 提取脚本。
-    输出：(progress_percent, status_text, log_text)
-    """
-    if not input_dir or not os.path.isdir(input_dir):
-        yield 0, "❗ 输入目录无效", ""
-        return
-    if not output_dir:
-        output_dir = _generate_default_output_dir(input_dir, "_token")
-
-    script_path = _token_script_path()
-    if not script_path.exists():
-        yield 0, f"找不到脚本: {script_path}", ""
-        return
-
-    # 设备与进程选择
-    chosen = device_choice
-    dev_detect, gpu_count, _detail = _auto_detect_device_and_processes()
-    if chosen == "自动":
-        chosen = "GPU" if dev_detect == "GPU" else "CPU"
-    use_cuda = (chosen == "GPU" and dev_detect == "GPU")
-    device_flag = "cuda" if use_cuda else "cpu"
-    try:
-        nproc = max(1, int(num_processes))
-    except Exception:
-        nproc = 1
-
-    cmd = [
-        sys.executable,
-        str(script_path),
-        "--input", str(input_dir),
-        "--output", str(output_dir),
-        "--device", device_flag,
-        "--num-proc", str(nproc),
-    ]
-
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            universal_newlines=True,
-        )
-    except Exception as e:
-        yield 0, f"启动失败: {e}", ""
-        return
-
-    start_time = time.time()
-    log_lines: List[str] = []
-    last_pct = -1
-    total_samples = None
-
-    yield 0, "Token 提取中...", ""
-
-    try:
-        assert proc.stdout is not None
-        for raw_line in proc.stdout:
-            line = raw_line.rstrip()
-            if not line:
-                continue
-            log_lines.append(line)
-            if len(log_lines) > 200:
-                log_lines = log_lines[-200:]
-
-            # 解析数据集总量
-            m_total = re.search(r"Loaded dataset:\s*(\d+)", line)
-            if m_total:
-                try:
-                    total_samples = int(m_total.group(1))
-                except Exception:
-                    pass
-
-            # 解析 tqdm 百分比
-            m_pct = re.search(r"(\d+)%\|", line)
-            if m_pct:
-                try:
-                    last_pct = int(m_pct.group(1))
-                except Exception:
-                    pass
-
-            # 完成提示
-            if "✅ Token 提取完成" in line or "All Finished" in line:
-                last_pct = 100
-
-            elapsed = int(time.time() - start_time)
-            if total_samples and last_pct >= 0:
-                done = int(total_samples * last_pct / 100)
-                status = f"进行中: {done}/{total_samples} · 用时 {elapsed}s"
-            else:
-                status = f"进行中 · 用时 {elapsed}s"
             yield (last_pct if last_pct >= 0 else 0), status, "\n".join(log_lines)
 
         ret = proc.wait()
@@ -681,9 +551,11 @@ def run_stage4(input_dir: str,
 
     elapsed = int(time.time() - start_time)
     if proc.returncode == 0:
-        yield 100, f"✅ 完成 · 用时 {elapsed}s", "\n".join(log_lines)
+        msg = f"✅ 完成 · 用时 {elapsed}s"
+        yield 100, msg, "\n".join(log_lines)
     else:
         yield (last_pct if last_pct >= 0 else 0), f"❌ 失败 · 用时 {elapsed}s", "\n".join(log_lines)
+
 
 
 def _parse_comma_dirs(input_dirs_text: str) -> List[str]:
@@ -717,7 +589,7 @@ def _flatten_to_datasets(ds_obj) -> List["Dataset"]:
     return []
 
 
-def preview_stage5(input_dirs_text: str, output_dir: str):
+def preview_stage4(input_dirs_text: str, output_dir: str):
     paths = _parse_comma_dirs(input_dirs_text)
     if not paths:
         return "❗ 请输入至少一个输入目录，使用逗号分隔"
@@ -747,7 +619,7 @@ def preview_stage5(input_dirs_text: str, output_dir: str):
     return "\n".join(head + ["", *lines])
 
 
-def run_stage5_merge(input_dirs_text: str, output_dir: str):
+def run_stage4_merge(input_dirs_text: str, output_dir: str):
     """合并多个 HuggingFace 数据集（支持 Dataset / DatasetDict），并保存到 output_dir。
     进度按阶段粗略估计并提供日志。
     """
@@ -829,151 +701,17 @@ def run_stage5_merge(input_dirs_text: str, output_dir: str):
         return
 
 
-def run_all_stages(input_dir: str, sample_rate: int = 16000, overwrite: bool = False):
-    """一键运行所有四个阶段的处理"""
-    if not input_dir or not os.path.isdir(input_dir):
-        yield 0, "❗ 输入目录无效", "请输入有效的输入目录"
-        return
-    
-    # 生成各阶段的输出目录
-    stage1_output = _generate_default_output_dir(input_dir, "_resample")
-    stage2_output = _generate_default_output_dir(stage1_output, "_vad")
-    stage3_output = _generate_default_output_dir(stage2_output, "_asr")
-    stage4_output = _generate_default_output_dir(stage3_output, "_token")
-    
-    total_stages = 4
-    stage_progress = 0
-    
-    try:
-        # 阶段1：格式转换与重采样
-        yield 5, "🎵 阶段1: 开始格式转换与重采样...", f"输入: {input_dir}\n输出: {stage1_output}"
-        
-        for progress, status, log in run_stage1(input_dir, stage1_output, sample_rate, overwrite):
-            overall_progress = int(progress * 0.25)  # 阶段1占总进度的25%
-            yield overall_progress, f"🎵 阶段1: {status}", f"当前阶段: 格式转换与重采样\n{log}"
-            if "完成" in status:
-                stage_progress = 1
-                break
-            elif "失败" in status:
-                yield overall_progress, f"❌ 阶段1失败: {status}", f"处理在阶段1失败\n{log}"
-                return
-        
-        # 阶段2：VAD处理
-        yield 26, "🔊 阶段2: 开始VAD语音活动检测...", f"输入: {stage1_output}\n输出: {stage2_output}"
-        
-        for progress, status, log, _ in run_stage2(
-            stage1_output, stage2_output, 0.5, 250, 200, 30, 0.5, 30, True
-        ):
-            overall_progress = 25 + int(progress * 0.25)  # 阶段2占总进度的25%
-            yield overall_progress, f"🔊 阶段2: {status}", f"当前阶段: VAD语音活动检测\n{log}"
-            if "完成" in status:
-                stage_progress = 2
-                break
-            elif "失败" in status:
-                yield overall_progress, f"❌ 阶段2失败: {status}", f"处理在阶段2失败\n{log}"
-                return
-        
-        # 阶段3：ASR转录
-        yield 51, "🎙️ 阶段3: 开始ASR语音识别转录...", f"输入: {stage2_output}\n输出: {stage3_output}"
-        
-        device, proc_count, _ = _auto_detect_device_and_processes()
-        device_choice = "GPU" if device == "GPU" else "CPU"
-        
-        for progress, status, log, _ in run_stage3(
-            stage2_output, stage3_output, device_choice, proc_count, True
-        ):
-            overall_progress = 50 + int(progress * 0.25)  # 阶段3占总进度的25%
-            yield overall_progress, f"🎙️ 阶段3: {status}", f"当前阶段: ASR语音识别转录\n{log}"
-            if "完成" in status:
-                stage_progress = 3
-                break
-            elif "失败" in status:
-                yield overall_progress, f"❌ 阶段3失败: {status}", f"处理在阶段3失败\n{log}"
-                return
-        
-        # 阶段4：Token提取
-        yield 76, "🧠 阶段4: 开始提取语音训练Token...", f"输入: {stage3_output}\n输出: {stage4_output}"
-        
-        for progress, status, log in run_stage4(
-            stage3_output, stage4_output, device_choice, proc_count
-        ):
-            overall_progress = 75 + int(progress * 0.25)  # 阶段4占总进度的25%
-            yield overall_progress, f"🧠 阶段4: {status}", f"当前阶段: 语音Token提取\n{log}"
-            if "完成" in status:
-                stage_progress = 4
-                break
-            elif "失败" in status:
-                yield overall_progress, f"❌ 阶段4失败: {status}", f"处理在阶段4失败\n{log}"
-                return
-        
-        # 全部完成
-        final_log = f"""✅ 所有阶段处理完成！
-
-📁 输入目录: {input_dir}
-📂 最终输出: {stage4_output}
-
-处理路径:
-🎵 阶段1 → {stage1_output}
-🔊 阶段2 → {stage2_output} 
-🎙️ 阶段3 → {stage3_output}
-🧠 阶段4 → {stage4_output}
-"""
-        yield 100, "🎉 全部阶段处理完成！", final_log
-        
-    except Exception as e:
-        yield stage_progress * 25, f"❌ 处理异常: {str(e)}", f"在阶段{stage_progress + 1}发生异常: {str(e)}"
-
-
 def create_data_tab():
     """创建数据处理tab界面"""
     with gr.Tab("📊 数据处理"):
         gr.Markdown("""
         # 🛠️ 音频数据预处理工作流
         
-        **四个阶段的处理流程：** 格式转换 → VAD分段 → ASR转录 → Token提取
+        **三个阶段的处理流程：** 格式转换 → VAD分段 → ASR转录
+        **可选阶段：** 数据集合并
         """)
         
         device_default, proc_default, device_detail = _auto_detect_device_and_processes()
-        
-        # 一键处理区域
-        with gr.Accordion("🚀 一键处理 - 自动运行全部四个阶段", open=True):
-            gr.Markdown("""
-            **功能：** 自动依次运行四个处理阶段，无需手动干预
-            
-            ⚡ **自动化流程：** 输入目录 → 格式转换 → VAD分段 → ASR转录 → Token提取
-            """)
-            
-            with gr.Group():
-                with gr.Column():
-                    with gr.Row():
-                        auto_input_dir = gr.Textbox(
-                            label="📁 输入目录", 
-                            placeholder="/path/to/input_dir",
-                            info="包含音频/视频文件的目录",
-                            scale=4
-                        )
-                        auto_sample_rate = gr.Dropdown(
-                            choices=[8000,16000,22050,44100,48000], 
-                            value=16000, 
-                            label="🎤 采样率 (Hz)",
-                            scale=1
-                        )
-                        auto_overwrite = gr.Checkbox(
-                            value=False, 
-                            label="⚠️ 覆盖文件",
-                            info="覆盖已存在的输出文件",
-                            scale=1
-                        )
-                    
-                    with gr.Row():
-                        auto_start_btn = gr.Button("🚀 开始一键处理", variant="primary", scale=1, size="lg")
-                        auto_stop_btn = gr.Button("⏹️ 停止处理", variant="secondary", scale=1, size="lg")
-                    
-                    with gr.Row():
-                        auto_progress = gr.Slider(0, 100, value=0, step=1, label="📊 总体进度 (%)", interactive=False)
-                    
-                    auto_status = gr.Textbox(label="📋 处理状态", interactive=False, lines=2)
-                    auto_log = gr.Textbox(label="📝 详细日志", lines=6, interactive=False, show_copy_button=True)
 
         # 阶段1：格式转换与重采样
         with gr.Accordion("🎵 阶段 1 - 格式转换与重采样", open=False):
@@ -1075,77 +813,37 @@ def create_data_tab():
                     s3_status = gr.Textbox(label="📋 状态", interactive=False)
                     s3_log = gr.Textbox(label="📝 运行日志", lines=4, interactive=False, show_copy_button=True)
 
-        # 阶段4：提取训练用 Token
-        with gr.Accordion("🧠 阶段 4 - 提取语音训练 Token", open=False):
-            gr.Markdown("**功能：** 从音频数据中提取用于训练的语音 Token，为模型训练做准备")
-            
-            with gr.Group():
-                with gr.Column():
-                    with gr.Row():
-                        s4_input_dir = gr.Textbox(label="📁 输入目录", placeholder="默认衔接阶段3输出", scale=3)
-                        s4_auto_sync = gr.Checkbox(value=True, label="🔄 自动同步输出路径", info="添加_token后缀", scale=1)
-                        s4_output_dir = gr.Textbox(label="📂 输出目录", placeholder="自动同步或手动填写", scale=3)
-                        
-                    with gr.Accordion("⚙️ 计算资源设置", open=False):
-                        with gr.Row():
-                            s4_device = gr.Dropdown(
-                                choices=["自动", "CPU", "GPU"], 
-                                value=("GPU" if device_default=="GPU" else "CPU"), 
-                                label="💻 计算设备"
-                            )
-                            s4_processes = gr.Number(value=proc_default, label="🔄 并行进程数")
-                            s4_detect_btn = gr.Button("🔄 刷新设备检测", variant="secondary", size="sm")
-                        s4_device_info = gr.Textbox(value=device_detail, label="ℹ️ 设备检测信息", interactive=False)
-                        
-                    with gr.Row():
-                        s4_preview_btn = gr.Button("👀 预览", variant="secondary", scale=1)
-                        s4_start_btn = gr.Button("▶️ 开始处理", variant="primary", scale=1)
-                        
-                    with gr.Row():
-                        s4_progress = gr.Slider(0, 100, value=0, step=1, label="📈 进度 (%)", interactive=False)
-                        
-                    s4_status = gr.Textbox(label="📋 状态", interactive=False)
-                    s4_log = gr.Textbox(label="📝 运行日志", lines=4, interactive=False, show_copy_button=True)
-
-        # 阶段5：数据集合并（可选）
-        with gr.Accordion("🧩 阶段 5 - 数据集合并 (可选)", open=False):
+        # 阶段4：数据集合并（可选）
+        with gr.Accordion("🧩 阶段 4 - 数据集合并 (可选)", open=False):
             gr.Markdown("**功能：** 将多个前面阶段生成的数据集目录合并为一个新的 HuggingFace 数据集。输入多个目录时使用英文逗号分隔。")
             with gr.Group():
                 with gr.Column():
                     with gr.Row():
-                        s5_input_dirs = gr.Textbox(label="📁 输入数据集目录（逗号分隔）", placeholder="/path/to/ds1,/path/to/ds2,...", scale=3)
-                        s5_output_dir = gr.Textbox(label="📂 合并输出目录", placeholder="/path/to/merged_dataset", scale=3)
+                        s4_input_dirs = gr.Textbox(label="📁 输入数据集目录（逗号分隔）", placeholder="/path/to/ds1,/path/to/ds2,...", scale=3)
+                        s4_output_dir = gr.Textbox(label="📂 合并输出目录", placeholder="/path/to/merged_dataset", scale=3)
                     with gr.Row():
-                        s5_preview_btn = gr.Button("👀 预览", variant="secondary", scale=1)
-                        s5_start_btn = gr.Button("▶️ 开始合并", variant="primary", scale=1)
+                        s4_preview_btn = gr.Button("👀 预览", variant="secondary", scale=1)
+                        s4_start_btn = gr.Button("▶️ 开始合并", variant="primary", scale=1)
                     with gr.Row():
-                        s5_progress = gr.Slider(0, 100, value=0, step=1, label="📈 进度 (%)", interactive=False)
-                    s5_status = gr.Textbox(label="📋 状态", interactive=False)
-                    s5_log = gr.Textbox(label="📝 合并日志", lines=6, interactive=False, show_copy_button=True)
+                        s4_progress = gr.Slider(0, 100, value=0, step=1, label="📈 进度 (%)", interactive=False)
+                    s4_status = gr.Textbox(label="📋 状态", interactive=False)
+                    s4_log = gr.Textbox(label="📝 合并日志", lines=6, interactive=False, show_copy_button=True)
 
         gr.Markdown("""
         ---
         
         ## 💡 使用提示
         
-        - **推荐使用一键处理** 获得最佳体验，自动化完成全部流程
         - **阶段顺序不可颠倒**：每个阶段都依赖前一阶段的输出
-        - **GPU 加速**：阶段3和4支持GPU加速，可显著提升处理速度
+        - **GPU 加速**：阶段3支持GPU加速，可显著提升处理速度
         - **监控进度**：每个阶段都有实时进度显示和详细日志
-        - **可选合并**：阶段5可将多个阶段产出的数据集进行合并
+        - **可选合并**：阶段4可将多个阶段产出的数据集进行合并
         
         ⚠️ **注意**：处理大量文件时请确保有足够的磁盘空间和计算资源
         """)
 
         # 隐藏的状态变量，用于单独运行阶段时传递link_enabled=False
         link_disabled_state = gr.State(value=False)
-
-        # 一键处理事件绑定
-        auto_start_btn.click(
-            fn=run_all_stages,
-            inputs=[auto_input_dir, auto_sample_rate, auto_overwrite],
-            outputs=[auto_progress, auto_status, auto_log],
-        )
 
         # 事件绑定（预处理）
         # 阶段1：自动同步输出、链到阶段2输入
@@ -1172,7 +870,7 @@ def create_data_tab():
             outputs=s2_output_dir,
         )
 
-        # 阶段3：自动同步输出、链到阶段4输入
+        # 阶段3：自动同步输出
         s3_input_dir.change(
             fn=lambda d, a: _sync_output_dir(d, a, "_asr"),
             inputs=[s3_input_dir, s3_auto_sync],
@@ -1182,18 +880,6 @@ def create_data_tab():
             fn=lambda a, d: _sync_output_dir(d, a, "_asr"),
             inputs=[s3_auto_sync, s3_input_dir],
             outputs=s3_output_dir,
-        )
-
-        # 阶段4：自动同步输出
-        s4_input_dir.change(
-            fn=lambda d, a: _sync_output_dir(d, a, "_token"),
-            inputs=[s4_input_dir, s4_auto_sync],
-            outputs=s4_output_dir,
-        )
-        s4_auto_sync.change(
-            fn=lambda a, d: _sync_output_dir(d, a, "_token"),
-            inputs=[s4_auto_sync, s4_input_dir],
-            outputs=s4_output_dir,
         )
 
         # 阶段1：预览与开始处理
@@ -1228,42 +914,25 @@ def create_data_tab():
         )
         s3_start_btn.click(
             fn=run_stage3,
-            inputs=[s3_input_dir, s3_output_dir, s3_device, s3_processes, link_disabled_state],
-            outputs=[s3_progress, s3_status, s3_log, s4_input_dir],
+            inputs=[s3_input_dir, s3_output_dir, s3_device, s3_processes],
+            outputs=[s3_progress, s3_status, s3_log],
         )
 
-        # 阶段4：预览与开始处理
-        s4_preview_btn.click(
-            fn=preview_stage4,
-            inputs=[s4_input_dir, s4_output_dir],
-            outputs=s4_status,
-        )
-        s4_start_btn.click(
-            fn=run_stage4,
-            inputs=[s4_input_dir, s4_output_dir, s4_device, s4_processes],
-            outputs=[s4_progress, s4_status, s4_log],
-        )
-
-        # 阶段3/4：刷新设备
+        # 阶段3：刷新设备
         s3_detect_btn.click(
             fn=_refresh_device_triplet,
             inputs=[],
             outputs=[s3_device_info, s3_processes, s3_device],
         )
-        s4_detect_btn.click(
-            fn=_refresh_device_triplet,
-            inputs=[],
-            outputs=[s4_device_info, s4_processes, s4_device],
-        ) 
 
-        # 阶段5：预览与开始合并
-        s5_preview_btn.click(
-            fn=preview_stage5,
-            inputs=[s5_input_dirs, s5_output_dir],
-            outputs=s5_status,
+        # 阶段4：预览与开始合并
+        s4_preview_btn.click(
+            fn=preview_stage4,
+            inputs=[s4_input_dirs, s4_output_dir],
+            outputs=s4_status,
         )
-        s5_start_btn.click(
-            fn=run_stage5_merge,
-            inputs=[s5_input_dirs, s5_output_dir],
-            outputs=[s5_progress, s5_status, s5_log],
+        s4_start_btn.click(
+            fn=run_stage4_merge,
+            inputs=[s4_input_dirs, s4_output_dir],
+            outputs=[s4_progress, s4_status, s4_log],
         )

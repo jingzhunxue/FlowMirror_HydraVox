@@ -58,7 +58,7 @@ def _load_state_dict_maybe_container(path: str) -> Dict[str, torch.Tensor]:
 
 
 def _maybe_get_default_config(model_type: str) -> str:
-    return "jzx-ai-lab/HydraVox-CV3/hydravox.yaml"
+    return f"{os.getenv('TTS_MODEL_DIR')}/hydravox.yaml"
 
 
 def _resolve_onnx_device_id(value: int | None) -> int:
