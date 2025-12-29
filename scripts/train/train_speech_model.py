@@ -10,6 +10,7 @@ import logging
 import os
 import random
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
@@ -265,12 +266,65 @@ def _get_onnx_tokenizer_session(
 
 def _get_speaker_verification_pipe(model_path: str, device: str) -> Any:
     global _SV_PIPE, _SV_PIPE_KEY
+    model_path = _ensure_speaker_verification_model(model_path)
     key = f"{model_path}|dev={device}"
     if _SV_PIPE is not None and _SV_PIPE_KEY == key:
         return _SV_PIPE
     _SV_PIPE = pipeline(task="speaker-verification", model=model_path, model_revision="v1.0.0", device=device)
     _SV_PIPE_KEY = key
     return _SV_PIPE
+
+
+def _ensure_speaker_verification_model(model_path: str) -> str:
+    path = Path(model_path).expanduser()
+    try:
+        if path.exists():
+            if path.is_file() or any(path.iterdir()):
+                return str(path)
+    except (OSError, PermissionError) as e:
+        logging.warning("检查说话人模型失败: %s", e)
+
+    logging.info("说话人模型不存在，准备下载: %s", model_path)
+    try:
+        from modelscope import snapshot_download
+
+        cache_dir = path.parent / "modelscope_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            downloaded = snapshot_download(
+                model_id=model_path,
+                revision="v1.0.0",
+                cache_dir=str(cache_dir),
+            )
+        except Exception:
+            fallback_id = "iic/speech_campplus_sv_zh-cn_16k-common"
+            if model_path != fallback_id:
+                logging.warning("下载 %s 失败，回退到 %s", model_path, fallback_id)
+                downloaded = snapshot_download(
+                    model_id=fallback_id,
+                    revision="v1.0.0",
+                    cache_dir=str(cache_dir),
+                )
+            else:
+                raise
+
+        downloaded_path = Path(downloaded).resolve()
+        if downloaded_path != path.resolve():
+            if path.exists():
+                shutil.rmtree(path)
+            try:
+                path.symlink_to(downloaded_path)
+                logging.info("创建软链接: %s -> %s", path, downloaded_path)
+            except (OSError, NotImplementedError):
+                shutil.copytree(downloaded_path, path)
+                logging.info("已复制模型文件到: %s", path)
+
+        if path.exists():
+            return str(path)
+        return str(downloaded_path)
+    except Exception as e:
+        logging.warning("下载说话人模型失败: %s，回退到在线模式", e)
+        return model_path
 
 
 def _load_audio_mono(audio_info: Any, target_sr: int) -> torch.Tensor:

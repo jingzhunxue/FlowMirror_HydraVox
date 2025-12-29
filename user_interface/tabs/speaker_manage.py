@@ -1,5 +1,6 @@
 import os
 import random
+import shutil
 from pathlib import Path
 from typing import Dict, Any, Tuple
 
@@ -8,6 +9,8 @@ import torch
 import torchaudio
 import pandas as pd
 import numpy as np
+
+from datasets import Audio
 
 
 DEFAULT_REL_SPK2INFO = "jzx-ai-lab/HydraVox-CV3/spk2info.pt"
@@ -92,6 +95,7 @@ def _spk2info_to_df(spk2info: Dict[str, Dict[str, torch.Tensor]]) -> pd.DataFram
 
 def _get_speaker_verification_pipe(model_path: str, device: str):
     global _SV_PIPE, _SV_PIPE_KEY
+    model_path = _ensure_speaker_verification_model(model_path)
     key = f"{model_path}|dev={device}"
     if _SV_PIPE is not None and _SV_PIPE_KEY == key:
         return _SV_PIPE
@@ -100,6 +104,55 @@ def _get_speaker_verification_pipe(model_path: str, device: str):
     _SV_PIPE = pipeline(task="speaker-verification", model=model_path, model_revision="v1.0.0", device=device)
     _SV_PIPE_KEY = key
     return _SV_PIPE
+
+
+def _ensure_speaker_verification_model(model_path: str) -> str:
+    path = Path(model_path).expanduser()
+    try:
+        if path.exists():
+            if path.is_file() or any(path.iterdir()):
+                return str(path)
+    except (OSError, PermissionError) as e:
+        gr.Warning(f"检查说话人模型失败: {e}")
+
+    try:
+        from modelscope import snapshot_download  # type: ignore
+
+        cache_dir = path.parent / "modelscope_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            downloaded = snapshot_download(
+                model_id=model_path,
+                revision="v1.0.0",
+                cache_dir=str(cache_dir),
+            )
+        except Exception:
+            fallback_id = "iic/speech_campplus_sv_zh-cn_16k-common"
+            if model_path != fallback_id:
+                gr.Warning(f"下载 {model_path} 失败，回退到 {fallback_id}")
+                downloaded = snapshot_download(
+                    model_id=fallback_id,
+                    revision="v1.0.0",
+                    cache_dir=str(cache_dir),
+                )
+            else:
+                raise
+
+        downloaded_path = Path(downloaded).resolve()
+        if downloaded_path != path.resolve():
+            if path.exists():
+                shutil.rmtree(path)
+            try:
+                path.symlink_to(downloaded_path)
+            except (OSError, NotImplementedError):
+                shutil.copytree(downloaded_path, path)
+
+        if path.exists():
+            return str(path)
+        return str(downloaded_path)
+    except Exception as e:
+        gr.Warning(f"下载说话人模型失败: {e}，回退到在线模式")
+        return model_path
 
 
 def _load_audio_mono(audio_info: Any, target_sr: int) -> torch.Tensor:
@@ -160,7 +213,7 @@ def _compute_mean_embedding_from_dataset(ds_path: str) -> Tuple[str, torch.Tenso
                 ds = ds.shuffle(seed=42).select(range(5000))
         except Exception:
             pass
-
+    ds = ds.cast_column("audio", Audio(decode=True, sampling_rate=16000))
     total = None
     count = 0
     try:
