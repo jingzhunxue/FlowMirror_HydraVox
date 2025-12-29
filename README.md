@@ -6,7 +6,7 @@
 
 **A natively accelerated TTS (text-to-speech) model with multi-head decoding, derived from CosyVoice.**
 
-[English] · [Simplified Chinese](README-zh.md) *(coming soon)*
+[English] · [Simplified Chinese](README-zh.md)
 
 </div>
 
@@ -39,7 +39,7 @@
 * **Hot‑load LoRA for emotion/style** (coming soon) — Load/unload adapters at runtime per utterance; stack multiple with per‑adapter scaling (e.g. `--lora happy.safetensors:0.6,energetic.safetensors:0.3`).
 * **SFT implementation** — Derived from CosyVoice 3.0.
 * **Reproducible scripts** — One‑command demo and fully version‑locked configs.
-* **CosyVoice2.0‑derived** — Clear deltas vs upstream; compatible data formats where possible.
+* **CosyVoice3.0‑derived** — Clear deltas vs upstream; compatible data formats where possible.
 
 > **Responsible use:** Please do not clone or impersonate voices without explicit consent.
 
