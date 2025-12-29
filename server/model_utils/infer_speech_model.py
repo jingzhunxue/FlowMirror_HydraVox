@@ -99,10 +99,10 @@ class ModelManager:
             logger.info("将模型移动到GPU...")
             if args.bf16:
                 llm.eval().cuda().to(torch.bfloat16)
-                flow.eval().cuda().to(torch.bfloat16)
+                flow.eval().cuda().half()
                 hift.eval().cuda()
                 llm.bf16 = True
-                flow.bf16 = True
+                flow.bf16 = False
                 llm.fp16 = False
                 flow.fp16 = False
                 logger.info("使用BF16精度")
