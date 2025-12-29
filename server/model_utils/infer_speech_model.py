@@ -570,6 +570,7 @@ def inference_zero_shot(model_manager, tts_text: str, prompt_text: str, prompt_a
             prompt_feat=model_input['prompt_speech_feat'],
             prompt_feat_len=model_input['prompt_speech_feat_len'],
             embedding=model_input['flow_embedding'],
+            streaming = False,
             finalize=True
         )
         
@@ -640,6 +641,7 @@ def inference_tts(model_manager, text: str, spk_id: str, speed: float = 1.0) -> 
             token=token_tensor,
             token_len=torch.tensor([token_tensor.shape[1]], dtype=torch.int32).to(token_tensor.device),
             embedding=model_input['flow_embedding'].unsqueeze(0),
+            streaming = False,
             finalize=True
         )
         
