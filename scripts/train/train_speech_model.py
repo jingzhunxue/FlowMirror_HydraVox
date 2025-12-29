@@ -595,7 +595,7 @@ def _resolve_tokenizer_onnx_path(args: argparse.Namespace) -> str:
         return args.tokenizer_onnx_path
     if args.tokenizer_path and args.tokenizer_path.endswith(".onnx"):
         return args.tokenizer_path
-    return "jzx-ai-lab/HydraVox-CV3/speech_tokenizer_v3.onnx"
+    return f"{os.getenv('TTS_MODEL_DIR', 'jzx-ai-lab/HydraVox-CV3')}/speech_tokenizer_v3.onnx"
 
 
 def _resolve_qwen_pretrain_path(args: argparse.Namespace) -> str:
@@ -604,7 +604,7 @@ def _resolve_qwen_pretrain_path(args: argparse.Namespace) -> str:
     if args.tokenizer_path:
         return args.tokenizer_path
     model_dir = os.getenv("TTS_MODEL_DIR", "jzx-ai-lab/HydraVox-CV3")
-    return os.path.join(model_dir, "CosyVoice-BlankEN")
+    return f"{model_dir}/CosyVoice-BlankEN"
 
 
 def _build_training_args(args: argparse.Namespace, cfg: Dict[str, Any], eval_dataset: Dataset | None) -> TrainingArguments:
