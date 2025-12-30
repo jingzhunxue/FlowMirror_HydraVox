@@ -313,7 +313,7 @@ modelscope download jzx-ai-lab/HydraVox-CV3 --local_dir jzx-ai-lab/HydraVox-CV3
 
 ## License
 
-- 代码：**Apache‑2.0**（示例 — 请按实际许可更新）。
+- 代码：**MIT**。
 - **源自 CosyVoice** — 参见 `NOTICE` 与 `LICENSE-THIRD-PARTY`。
 
 ---
