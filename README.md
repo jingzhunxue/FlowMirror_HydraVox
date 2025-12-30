@@ -329,7 +329,7 @@ Note: Ensure sufficient disk space and GPU resources for large‑scale processin
 
 ## License
 
-* Code: **Apache‑2.0** *(example — update to your actual license)*.
+* Code: **MIT** .
 * **Derived from CosyVoice** — see `NOTICE` and `LICENSE-THIRD-PARTY` for upstream licenses and modifications.
 
 ---
