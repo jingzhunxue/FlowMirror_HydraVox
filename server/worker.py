@@ -14,6 +14,14 @@ logger = logging.getLogger("uvicorn")
 
 logger.setLevel(logging.INFO)
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Parse boolean-like environment variables safely."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
 def worker_process_tts(
     num_workers_gpu,
     task_queue,       # multiprocessing.Manager().Queue()
@@ -28,9 +36,9 @@ def worker_process_tts(
     args_parse = argparse.Namespace(
         config=os.getenv("TTS_CONFIG"),
         model_dir=os.getenv("TTS_MODEL_DIR"),
-        bf16=bool(os.getenv("TTS_BF_16")),
-        fp16=bool(os.getenv("TTS_FP_16")),
-        cpu=bool(os.getenv("TTS_CPU", False)),
+        bf16=_env_flag("TTS_BF_16"),
+        fp16=_env_flag("TTS_FP_16"),
+        cpu=_env_flag("TTS_CPU", False),
     )
 
     model_manager.load_models(args_parse)

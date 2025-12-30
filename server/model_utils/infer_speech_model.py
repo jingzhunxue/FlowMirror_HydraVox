@@ -760,7 +760,7 @@ def text_to_speech(model_manager, text, speaker_id, speed: float = 1.0):
         segments_info = None
         if len(text) > 5000:
             # 长文本使用分段推理
-            logger.info(f"文本长度超过30字符，使用分段推理")
+            logger.info(f"文本长度超过5000字符，使用分段推理")
             output_audio = inference_tts_with_segmentation(
                 model_manager,
                 text,
