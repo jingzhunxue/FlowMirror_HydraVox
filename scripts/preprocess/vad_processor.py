@@ -16,6 +16,17 @@ from tqdm import tqdm
 from silero_vad import load_silero_vad, get_speech_timestamps
 warnings.filterwarnings('ignore')
 
+try:
+    from user_interface.i18n import t
+except Exception:
+    def t(text: str, **kwargs):
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
+
 
 class VADProcessor:
     def __init__(self, sample_rate=16000, merge_threshold=0.5, split_threshold=10.0, vad_threshold=0.5, min_speech_duration_ms=250, min_silence_duration_ms=200, speech_pad_ms=30):
@@ -35,12 +46,12 @@ class VADProcessor:
         self.min_silence_duration_ms = min_silence_duration_ms
         self.speech_pad_ms = speech_pad_ms
         
-        print("正在加载Silero VAD模型...")
+        print(t("vad.loading_model"))
         try:
             self.model = load_silero_vad()
-            print("✓ VAD模型加载成功")
+            print(t("vad.model_loaded"))
         except Exception as e:
-            print(f"✗ VAD模型加载失败: {e}")
+            print(t("vad.model_load_failed", error=e))
             raise
         
     def load_audio(self, file_path):
@@ -59,7 +70,7 @@ class VADProcessor:
             
             return waveform.squeeze()
         except Exception as e:
-            raise RuntimeError(f"加载音频文件失败: {e}")
+            raise RuntimeError(t("vad.load_audio_failed", error=e))
     
     def save_audio(self, waveform, output_path):
         """保存音频文件"""
@@ -76,7 +87,7 @@ class VADProcessor:
                 bits_per_sample=16
             )
         except Exception as e:
-            raise RuntimeError(f"保存音频文件失败: {e}")
+            raise RuntimeError(t("vad.save_audio_failed", error=e))
     
     def get_speech_timestamps(self, audio):
         """获取语音时间戳"""
@@ -155,7 +166,13 @@ class VADProcessor:
             # 如果音频较短，直接返回无需切分
             if audio_duration <= self.split_threshold:
                 if audio_duration < self.merge_threshold:
-                    print(f"  警告: 音频时长({audio_duration:.2f}s)小于合并阈值({self.merge_threshold}s)")
+                    print(
+                        t(
+                            "vad.audio_too_short_warn",
+                            duration=audio_duration,
+                            threshold=self.merge_threshold,
+                        )
+                    )
                 
                 output_filename = f"{file_prefix or Path(input_file).stem}.wav"
                 output_path = os.path.join(output_dir, output_filename)
@@ -166,7 +183,7 @@ class VADProcessor:
             speech_timestamps = self.get_speech_timestamps(audio)
             
             if not speech_timestamps:
-                print(f"  未检测到语音片段")
+                print(t("vad.no_speech_segments"))
                 return []
             
             # 合并短片段
@@ -185,7 +202,7 @@ class VADProcessor:
                     valid_segments.append(segment)
                         
             if not valid_segments:
-                print(f"  没有有效的语音片段")
+                print(t("vad.no_valid_segments"))
                 return []
             
             # 保存切分后的音频
@@ -203,11 +220,11 @@ class VADProcessor:
                 self.save_audio(segment_audio, output_path)
                 output_files.append(output_path)
                 
-            print(f"  生成 {len(output_files)} 个片段")
+            print(t("vad.segments_generated", count=len(output_files)))
             return output_files
             
         except Exception as e:
-            print(f"  处理失败: {e}")
+            print(t("vad.process_failed", error=e))
             import traceback
             traceback.print_exc()
             return []
@@ -218,7 +235,7 @@ class VADProcessor:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         
-        print(f"扫描目录: {input_dir}")
+        print(t("vad.scan_dir", input_dir=input_dir))
         
         # 支持的音频格式
         audio_extensions = {'.wav', '.mp3', '.flac', '.m4a', '.ogg', '.wma'}
@@ -230,57 +247,57 @@ class VADProcessor:
             audio_files = [f for f in input_path.iterdir() if f.is_file() and f.suffix.lower() in audio_extensions]
         
         if not audio_files:
-            print("未找到任何音频文件")
+            print(t("vad.no_audio_files"))
             return []
         
-        print(f"找到 {len(audio_files)} 个音频文件")
+        print(t("vad.found_audio_files", count=len(audio_files)))
         
         all_output_files = []
         
-        for audio_file in tqdm(audio_files, desc="处理音频文件"):
+        for audio_file in tqdm(audio_files, desc=t("vad.processing_audio_desc")):
             files = self.process_audio(str(audio_file), str(output_path), audio_file.stem)
             all_output_files.extend(files)
         
-        print(f"处理完成，总共生成 {len(all_output_files)} 个文件")
+        print(t("vad.process_complete_count", count=len(all_output_files)))
         return all_output_files
 
 
 def main():
-    parser = argparse.ArgumentParser(description='🔊 基于Silero VAD的音频智能切分工具')
-    parser.add_argument('input', help='输入文件或目录路径')
-    parser.add_argument('-o', '--output', required=True, help='输出目录路径')
+    parser = argparse.ArgumentParser(description=t("vad.cli_description"))
+    parser.add_argument('input', help=t("vad.cli_input"))
+    parser.add_argument('-o', '--output', required=True, help=t("vad.cli_output"))
     parser.add_argument('-r', '--recursive', action='store_true', 
-                       help='递归处理子目录')
+                       help=t("vad.cli_recursive"))
     parser.add_argument('--sample-rate', type=int, default=16000,
-                       help='输出采样率 (默认: 16000)')
+                       help=t("vad.cli_sample_rate"))
     parser.add_argument('--vad-threshold', type=float, default=0.5,
-                       help='VAD阈值 (默认: 0.5)')
+                       help=t("vad.cli_vad_threshold"))
     parser.add_argument('--min-speech-duration-ms', type=int, default=250,
-                       help='最短语音时长 (默认: 250ms)')
+                       help=t("vad.cli_min_speech"))
     parser.add_argument('--min-silence-duration-ms', type=int, default=200,
-                       help='最短静音时长 (默认: 200ms)')
+                       help=t("vad.cli_min_silence"))
     parser.add_argument('--speech-pad-ms', type=int, default=30,
-                       help='前后填充时长 (默认: 30ms)')
+                       help=t("vad.cli_speech_pad"))
     parser.add_argument('--merge-threshold', type=float, default=0.5,
-                       help='最小音频长度阈值(秒)，小于此值会被合并 (默认: 0.5)')
+                       help=t("vad.cli_merge_threshold"))
     parser.add_argument('--split-threshold', type=float, default=10.0,
-                       help='最大音频长度阈值(秒)，超过此值会被切分 (默认: 10.0)')
+                       help=t("vad.cli_split_threshold"))
     
     args = parser.parse_args()
     
-    print("🔊 Silero VAD 音频切分工具")
+    print(t("vad.title"))
     print("="*50)
     
     # 验证输入路径
     if not os.path.exists(args.input):
-        print(f"错误: 路径不存在: {args.input}")
+        print(t("vad.path_not_found", path=args.input))
         return 1
     
-    print(f"输入: {args.input}")
-    print(f"输出: {args.output}")
-    print(f"采样率: {args.sample_rate}Hz")
-    print(f"切分阈值: {args.split_threshold}s")
-    print(f"合并阈值: {args.merge_threshold}s")
+    print(t("vad.input", input=args.input))
+    print(t("vad.output", output=args.output))
+    print(t("vad.sample_rate", sample_rate=args.sample_rate))
+    print(t("vad.split_threshold", threshold=args.split_threshold))
+    print(t("vad.merge_threshold", threshold=args.merge_threshold))
     
     # 创建VAD处理器
     try:
@@ -292,7 +309,7 @@ def main():
             speech_pad_ms=args.speech_pad_ms
         )
     except Exception as e:
-        print(f"初始化失败: {e}")
+        print(t("vad.init_failed", error=e))
         return 1
     
     # 开始处理
@@ -307,16 +324,16 @@ def main():
         elif os.path.isdir(args.input):
             output_files = processor.process_directory(args.input, args.output, args.recursive)
         else:
-            print(f"无效的路径类型: {args.input}")
+            print(t("vad.invalid_path_type", path=args.input))
             return 1
         
         total_files = len(output_files)
         
     except KeyboardInterrupt:
-        print("\n用户中断处理")
+        print("\n" + t("vad.user_interrupt"))
         return 0
     except Exception as e:
-        print(f"处理过程中发生错误: {e}")
+        print(t("vad.process_error", error=e))
         import traceback
         traceback.print_exc()
         return 1
@@ -324,10 +341,10 @@ def main():
     elapsed_time = time.time() - start_time
     
     print("="*50)
-    print(f"总生成文件数: {total_files}")
-    print(f"总耗时: {elapsed_time:.2f}秒")
-    print("✅ 处理完成！")
-    print(f"step 2/5: ✅ All Finished! created {total_files} files -> {args.output}")
+    print(t("vad.total_files", count=total_files))
+    print(t("vad.total_time", seconds=elapsed_time))
+    print(t("vad.done"))
+    print(t("vad.step_done", count=total_files, output=args.output))
     
     return 0
 

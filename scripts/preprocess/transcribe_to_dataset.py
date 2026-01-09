@@ -20,6 +20,17 @@ from datasets import Dataset, Features, Audio, Value
 import numpy as np
 from modelscope.pipelines import pipeline
 from modelscope.utils.constant import Tasks
+
+try:
+    from user_interface.i18n import t
+except Exception:
+    def t(text: str, **kwargs):
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
 # ---------- ASR ----------
 def load_asr(model_type: str, device: str):
     
@@ -175,7 +186,7 @@ def process_file(path: Path, asr_mdl, sr=16000) -> List[Dict]:
                 
                 # 检查采样率，如果不一致则进行重采样
                 if sample_rate != sr:
-                    print(f"重采样 {path.name}: {sample_rate}Hz -> {sr}Hz")
+                    print(t("asr.resample", name=path.name, src_sr=sample_rate, dst_sr=sr))
                     resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=sr)
                     wav = resampler(wav)
                     sample_rate = sr
@@ -186,18 +197,18 @@ def process_file(path: Path, asr_mdl, sr=16000) -> List[Dict]:
                 records.append({"audio": {"array": buf, "sampling_rate": sr}, "text": text})
                 return records
         except Exception as e:
-            print(f" ! 读取txt文件失败 {txt_path}: {e}, 使用ASR转录")
+            print(t("asr.txt_read_failed", path=txt_path, error=e))
     
     # 如果没有txt文件或读取失败，使用ASR转录
     wav, sample_rate = torchaudio.load(str(path))
     if sample_rate != sr:
-        print(f"重采样 {path.name}: {sample_rate}Hz -> {sr}Hz")
+        print(t("asr.resample", name=path.name, src_sr=sample_rate, dst_sr=sr))
         resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=sr)
         wav = resampler(wav)
         sample_rate = sr
     if wav.shape[0] == 2:
         wav = wav.mean(dim=0)
-        print(f"合并立体声 {path.name}")
+        print(t("asr.merge_stereo", name=path.name))
     buf = wav.squeeze().cpu().numpy().astype("float32")
     text = asr_transcribe(asr_mdl, buf)
     if text.strip():
@@ -229,26 +240,46 @@ def worker_process(worker_id, file_chunk, device, gpu_id, min_sec, return_dict):
             if torch.cuda.is_available():
                 target_device = "cuda:0"  # 在设置了CUDA_VISIBLE_DEVICES后，可见的GPU总是0
                 asr_model_type = "paraformer"
-                print(f"[Worker {worker_id}] 使用GPU {gpu_id}，映射为 {target_device}")
+                print(
+                    t(
+                        "asr.worker_use_gpu",
+                        worker_id=worker_id,
+                        gpu_id=gpu_id,
+                        target_device=target_device,
+                    )
+                )
             else:
-                print(f"[Worker {worker_id}] GPU {gpu_id} 不可用，切换到CPU")
+                print(
+                    t(
+                        "asr.worker_gpu_unavailable",
+                        worker_id=worker_id,
+                        gpu_id=gpu_id,
+                    )
+                )
                 target_device = "cpu"
                 asr_model_type = "sensevoice"
         else:
             target_device = "cpu"
             asr_model_type = "sensevoice"
         
-        print(f"[Worker {worker_id}] 开始处理 {len(file_chunk)} 个文件，使用设备: {target_device}")
+        print(
+            t(
+                "asr.worker_start",
+                worker_id=worker_id,
+                count=len(file_chunk),
+                device=target_device,
+            )
+        )
         
         # 加载ASR模型
         try:
             asr_mdl = load_asr(asr_model_type, target_device)
-            print(f"[Worker {worker_id}] ASR模型加载成功")
+            print(t("asr.worker_model_loaded", worker_id=worker_id))
         except Exception as e:
-            print(f"[Worker {worker_id}] ASR模型加载失败: {e}")
+            print(t("asr.worker_model_failed", worker_id=worker_id, error=e))
             # 如果GPU模型加载失败，尝试CPU
             if target_device != "cpu":
-                print(f"[Worker {worker_id}] 尝试使用CPU加载模型")
+                print(t("asr.worker_try_cpu", worker_id=worker_id))
                 target_device = "cpu"
                 asr_model_type = "sensevoice"
                 asr_mdl = load_asr(asr_model_type, target_device)
@@ -257,18 +288,35 @@ def worker_process(worker_id, file_chunk, device, gpu_id, min_sec, return_dict):
         
         # 处理分配的文件
         worker_records = []
-        for fp in tqdm(file_chunk, desc=f"Worker {worker_id}", position=worker_id):
+        for fp in tqdm(
+            file_chunk,
+            desc=t("asr.worker_desc", worker_id=worker_id),
+            position=worker_id,
+        ):
             try:
                 recs = process_file(fp, asr_mdl, sr=16000)
                 worker_records.extend(recs)
             except Exception as e:
-                print(f"[Worker {worker_id}] 跳过文件 {fp.name}: {e}")
+                print(
+                    t(
+                        "asr.worker_skip_file",
+                        worker_id=worker_id,
+                        name=fp.name,
+                        error=e,
+                    )
+                )
         
         return_dict[worker_id] = worker_records
-        print(f"[Worker {worker_id}] 完成处理，生成 {len(worker_records)} 条记录")
+        print(
+            t(
+                "asr.worker_done",
+                worker_id=worker_id,
+                count=len(worker_records),
+            )
+        )
         
     except Exception as e:
-        print(f"[Worker {worker_id}] 发生错误: {e}")
+        print(t("asr.worker_error", worker_id=worker_id, error=e))
         import traceback
         traceback.print_exc()
         return_dict[worker_id] = []
@@ -298,7 +346,13 @@ def process_files_multiprocess(audio_files, device, gpu_devices, num_workers, mi
         # 如果已经设置过了，忽略错误
         pass
     
-    print(f"🚀 启动多进程处理: {num_workers} 个工作进程处理 {len(audio_files)} 个文件")
+    print(
+        t(
+            "asr.mp_start",
+            workers=num_workers,
+            count=len(audio_files),
+        )
+    )
     
     # 将文件平均分配给各个工作进程
     chunk_size = math.ceil(len(audio_files) / num_workers)
@@ -331,21 +385,34 @@ def process_files_multiprocess(audio_files, device, gpu_devices, num_workers, mi
         )
         processes.append(p)
         p.start()
-        print(f"[主进程] 启动工作进程 {i}，分配 {len(file_chunks[i])} 个文件，GPU: {gpu_id}")
+        print(
+            t(
+                "asr.main_start_worker",
+                worker_id=i,
+                count=len(file_chunks[i]),
+                gpu_id=gpu_id,
+            )
+        )
     
     # 等待所有进程完成
     for i, p in enumerate(processes):
         p.join()
-        print(f"[主进程] 工作进程 {i} 已完成")
+        print(t("asr.main_worker_done", worker_id=i))
     
     # 合并所有结果
     all_records = []
     for worker_id in sorted(return_dict.keys()):
         worker_records = return_dict[worker_id]
         all_records.extend(worker_records)
-        print(f"[主进程] 合并工作进程 {worker_id} 的 {len(worker_records)} 条记录")
+        print(
+            t(
+                "asr.main_merge_worker",
+                worker_id=worker_id,
+                count=len(worker_records),
+            )
+        )
     
-    print(f"✅ 多进程处理完成，总共生成 {len(all_records)} 条记录")
+    print(t("asr.mp_done", count=len(all_records)))
     return all_records
 
 def build_dataset(records, dst: Path, batch_size: int = 1000):
@@ -358,31 +425,31 @@ def build_dataset(records, dst: Path, batch_size: int = 1000):
         batch_size: 批处理大小
     """
     total_records = len(records)
-    print(f"总记录数: {total_records}")
+    print(t("asr.total_records", count=total_records))
     
     if total_records == 0:
-        print("⚠️ 没有记录可处理")
+        print(t("asr.no_records"))
         return
     
     # 如果记录数较少，直接处理
     if total_records <= batch_size:
-        print("记录数较少，直接处理...")
+        print(t("asr.small_records"))
         # 对每个audio进行响度控制
-        print("正在进行响度控制...")
-        for i, record in enumerate(tqdm(records, desc="Normalizing")):
+        print(t("asr.normalizing"))
+        for i, record in enumerate(tqdm(records, desc=t("asr.normalizing_desc"))):
             audio_array = record["audio"]["array"]
             normalized_audio = normalize_loudness(audio_array)
             records[i]["audio"]["array"] = normalized_audio
         
-        print("开始生成Dataset...")
+        print(t("asr.build_dataset"))
         features = Features({"audio": Audio(sampling_rate=16000), "text": Value("string")})
         ds = Dataset.from_list(records, features=features)
         ds.save_to_disk(dst)
-        print(f"✓ Saved dataset with {len(ds)} records -> {dst}")
+        print(t("asr.dataset_saved", count=len(ds), dst=dst))
         return
     
     # 分批处理大数据集
-    print(f"开始分批处理，批大小: {batch_size}")
+    print(t("asr.batch_processing_start", batch_size=batch_size))
     
     # 创建输出目录
     dst.mkdir(parents=True, exist_ok=True)
@@ -396,20 +463,34 @@ def build_dataset(records, dst: Path, batch_size: int = 1000):
         start_idx = batch_idx * batch_size
         end_idx = min((batch_idx + 1) * batch_size, total_records)
         
-        print(f"\n处理批次 {batch_idx + 1}/{num_batches} (记录 {start_idx}-{end_idx})")
+        print(
+            "\n"
+            + t(
+                "asr.batch_processing",
+                batch_idx=batch_idx + 1,
+                total_batches=num_batches,
+                start=start_idx,
+                end=end_idx,
+            )
+        )
         
         # 获取当前批次的记录
         batch_records = records[start_idx:end_idx]
         
         # 响度控制
-        print("正在进行响度控制...")
-        for i, record in enumerate(tqdm(batch_records, desc=f"Normalizing batch {batch_idx + 1}")):
+        print(t("asr.normalizing"))
+        for i, record in enumerate(
+            tqdm(
+                batch_records,
+                desc=t("asr.normalizing_batch_desc", batch_idx=batch_idx + 1),
+            )
+        ):
             audio_array = record["audio"]["array"]
             normalized_audio = normalize_loudness(audio_array)
             batch_records[i]["audio"]["array"] = normalized_audio
         
         # 创建当前批次的dataset
-        print(f"创建批次 {batch_idx + 1} 的Dataset...")
+        print(t("asr.batch_build_dataset", batch_idx=batch_idx + 1))
         features = Features({"audio": Audio(sampling_rate=16000), "text": Value("string")})
         batch_ds = Dataset.from_list(batch_records, features=features)
         
@@ -419,7 +500,7 @@ def build_dataset(records, dst: Path, batch_size: int = 1000):
         
         all_datasets.append(batch_ds)
         
-        print(f"✓ 批次 {batch_idx + 1} 已保存到 {batch_path}")
+        print(t("asr.batch_saved", batch_idx=batch_idx + 1, path=batch_path))
         
         # 清理内存
         del batch_records
@@ -428,7 +509,7 @@ def build_dataset(records, dst: Path, batch_size: int = 1000):
         gc.collect()
     
     # 合并所有批次
-    print(f"\n合并 {len(all_datasets)} 个批次...")
+    print("\n" + t("asr.merge_batches", count=len(all_datasets)))
     try:
         from datasets import concatenate_datasets
         final_ds = concatenate_datasets(all_datasets)
@@ -437,8 +518,8 @@ def build_dataset(records, dst: Path, batch_size: int = 1000):
         final_path = dst / "final_dataset"
         final_ds.save_to_disk(final_path)
         
-        print(f"✓ 最终数据集已保存到 {final_path}")
-        print(f"总记录数: {len(final_ds)}")
+        print(t("asr.final_saved", path=final_path))
+        print(t("asr.total_records", count=len(final_ds)))
         
         # 清理批次文件
         import shutil
@@ -447,12 +528,12 @@ def build_dataset(records, dst: Path, batch_size: int = 1000):
             if batch_path.exists():
                 shutil.rmtree(batch_path)
         
-        print("✓ 已清理临时批次文件")
+        print(t("asr.cleanup_batches"))
         
     except Exception as e:
-        print(f"⚠️ 合并失败: {e}")
-        print(f"批次文件保存在: {dst}")
-        print("你可以手动加载各个批次文件")
+        print(t("asr.merge_failed", error=e))
+        print(t("asr.batch_files_saved", path=dst))
+        print(t("asr.batch_files_hint"))
     
     finally:
         # 清理内存
@@ -470,13 +551,13 @@ def main():
         pass
     
     ap = argparse.ArgumentParser()
-    ap.add_argument("--src", type=Path, required=True, help="音频文件根目录")
-    ap.add_argument("--dst", type=Path, required=True, help="输出 datasets 目录")
+    ap.add_argument("--src", type=Path, required=True, help=t("asr.cli_src"))
+    ap.add_argument("--dst", type=Path, required=True, help=t("asr.cli_dst"))
     ap.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
-    ap.add_argument("--gpu_devices", type=str, default="", help="指定GPU设备，用逗号分隔，如: 0,1,2,3")
-    ap.add_argument("--num_workers", type=int, default=1, help="并行工作进程数")
-    ap.add_argument("--min_sec", type=float, default=0.3, help="分段最小间隔 (s)")
-    ap.add_argument("--batch_size", type=int, default=1000, help="批处理大小，避免内存溢出 (默认: 1000)")
+    ap.add_argument("--gpu_devices", type=str, default="", help=t("asr.cli_gpu_devices"))
+    ap.add_argument("--num_workers", type=int, default=1, help=t("asr.cli_num_workers"))
+    ap.add_argument("--min_sec", type=float, default=0.3, help=t("asr.cli_min_sec"))
+    ap.add_argument("--batch_size", type=int, default=1000, help=t("asr.cli_batch_size"))
     args = ap.parse_args()
 
     args.dst.parent.mkdir(parents=True, exist_ok=True)
@@ -495,25 +576,25 @@ def main():
             gpu_devices = list(range(torch.cuda.device_count()))
         
         if not gpu_devices:
-            print("⚠️ 未找到有效的GPU设备，使用CPU")
+            print(t("asr.no_valid_gpu"))
             device = "cpu"
         else:
             device = "cuda"
-            print(f"🚀 将使用GPU设备: {gpu_devices}")
+            print(t("asr.use_gpu_devices", devices=gpu_devices))
     else:
         device = "cpu"
-        print("🖥️ 使用CPU设备")
+        print(t("asr.use_cpu"))
     
     # 调整工作进程数
     if device == "cuda" and len(gpu_devices) > 1:
         # 多GPU情况下，每个GPU一个进程
         args.num_workers = min(args.num_workers, len(gpu_devices))
-        print(f"📊 多GPU并行处理，使用 {args.num_workers} 个工作进程")
+        print(t("asr.multi_gpu", workers=args.num_workers))
     elif device == "cpu":
         # CPU情况下限制进程数
         import os
         args.num_workers = min(args.num_workers, os.cpu_count())
-        print(f"🔧 CPU并行处理，使用 {args.num_workers} 个工作进程")
+        print(t("asr.cpu_parallel", workers=args.num_workers))
 
     # 同时查找 .wav 和 .mp3 文件
     wav_files = sorted(args.src.rglob("*.wav"))
@@ -521,10 +602,10 @@ def main():
     audio_files = wav_files + mp3_files
     
     if not audio_files:
-        print(f"错误：在目录 '{args.src}' 中没有找到任何 .wav 或 .mp3 文件。")
+        print(t("asr.no_audio_files", src=args.src))
         sys.exit(1)
     
-    print(f"找到 {len(wav_files)} 个 .wav 文件和 {len(mp3_files)} 个 .mp3 文件")
+    print(t("asr.found_files", wav_count=len(wav_files), mp3_count=len(mp3_files)))
     
     # 多进程处理
     if args.num_workers > 1:
@@ -536,21 +617,21 @@ def main():
         # 单进程处理（原有逻辑）
         asr_model_type = "paraformer" if device == "cuda" else "sensevoice"
         target_device = f"cuda:{gpu_devices[0]}" if device == "cuda" and gpu_devices else device
-        print('Loading ASR model...')
+        print(t("asr.loading_model"))
         asr_mdl = load_asr(asr_model_type, target_device)
-        print(f"[ASR] using {asr_model_type} on {target_device}")
+        print(t("asr.using_model", model_type=asr_model_type, device=target_device))
         
         all_records = []
-        for fp in tqdm(audio_files, desc="ASR"):
+        for fp in tqdm(audio_files, desc=t("asr.asr_desc")):
             recs = process_file(fp, asr_mdl, sr=16000)
             all_records.extend(recs)
 
     if not all_records:
-        print("错误：未能从音频文件中提取任何有效的语音文本对。")
+        print(t("asr.no_records_extracted"))
         sys.exit(1)
 
     build_dataset(all_records, args.dst, args.batch_size)
-    print(f"step 4/5: ✅ All Finished! Transcribed {len(all_records)} files -> {args.dst}")
+    print(t("asr.step_done", count=len(all_records), dst=args.dst))
 
 if __name__ == "__main__":
     main()

@@ -3,6 +3,7 @@ import gradio as gr
 from typing import Tuple, List
 from .tabs import create_inference_tab, create_data_tab, create_training_tab
 from .tabs.speaker_manage import create_speaker_manage_tab
+from .i18n import t, get_lang, set_lang
 from pathlib import Path
 
 BACKEND = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
@@ -22,7 +23,7 @@ def get_speakers() -> List[str]:
         else:
             return ["default"]
     except Exception as e:
-        print(f"获取说话人列表失败: {str(e)}")
+        print(t("ui.speaker_fetch_failed", error=str(e)))
         return ["default"]
 
 def tts_once(text: str, speaker_id: str) -> Tuple[int, np.ndarray]:
@@ -42,21 +43,21 @@ def tts_once(text: str, speaker_id: str) -> Tuple[int, np.ndarray]:
 
 def create_simple_ui():
     """创建简单版UI（向后兼容）"""
-    with gr.Blocks(title="Multi-Head AR TTS (HTTP)") as demo:
-        gr.Markdown("### Multi-Head AR TTS · HTTP Only · Gradio Frontend")
+    with gr.Blocks(title=t("Multi-Head AR TTS (HTTP)")) as demo:
+        gr.Markdown(t("### Multi-Head AR TTS · HTTP Only · Gradio Frontend"))
         with gr.Row():
-            text = gr.Textbox(label="Text", value="你好，这是一个基于 HTTP 的 TTS 演示。")
-            speaker = gr.Dropdown(choices=get_speakers(), value="default", label="Speaker")
-        out = gr.Audio(label="Audio", type="numpy", streaming=False, autoplay=True)
-        btn = gr.Button("Synthesize")
+            text = gr.Textbox(label=t("Text"), value=t("你好，这是一个基于 HTTP 的 TTS 演示。"))
+            speaker = gr.Dropdown(choices=get_speakers(), value="default", label=t("Speaker"))
+        out = gr.Audio(label=t("Audio"), type="numpy", streaming=False, autoplay=True)
+        btn = gr.Button(t("Synthesize"))
         btn.click(fn=tts_once, inputs=[text, speaker], outputs=out)
-        gr.Markdown(f"Backend: `{BACKEND}`")
+        gr.Markdown(t("Backend: `{backend}`", backend=BACKEND))
     return demo
 
 def create_main_ui():
     """创建主界面，整合所有tab"""
     with gr.Blocks(
-        title="HydraVox TTS System",
+        title=t("HydraVox TTS System"),
         theme=gr.themes.Soft(),
         css="""
         .gradio-container {
@@ -68,40 +69,101 @@ def create_main_ui():
         """
     ) as demo:
         # 主标题
-        gr.HTML(f"""
-        <div style="text-align: center; padding: 20px;">
-            <h1 style="color: #2c3e50; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; gap: 12px;">
-                <img src="{LOGO_IMG_URL}" alt="HydraVox" style="height: 36px; vertical-align: middle;"/>
-                HydraVox TTS System
-            </h1>
-            <p style="color: #7f8c8d; font-size: 18px;">
-                支持多Token预测的语音合成系统
-            </p>
-        </div>
-        """)
-        
+        def _build_header_html() -> str:
+            return (
+                "<div style=\"text-align: center; padding: 20px;\">"
+                "<h1 style=\"color: #2c3e50; margin-bottom: 10px; display: flex; align-items: center; "
+                "justify-content: center; gap: 12px;\">"
+                f"<img src=\"{LOGO_IMG_URL}\" alt=\"HydraVox\" style=\"height: 36px; vertical-align: middle;\"/>"
+                f"{t('HydraVox TTS System')}"
+                "</h1>"
+                f"<p style=\"color: #7f8c8d; font-size: 18px;\">{t('支持多Token预测的语音合成系统')}</p>"
+                "</div>"
+            )
+
+        def _build_footer_html() -> str:
+            backend_line = t("🔗 后端服务: {backend}", backend=f"<code>{BACKEND}</code>")
+            return (
+                "<div style=\"text-align: center; padding: 20px; margin-top: 30px; "
+                "border-top: 1px solid #eee; color: #7f8c8d;\">"
+                f"<p>{backend_line}</p>"
+                f"<p>{t('💡 HydraVox - 让语音合成更简单')}</p>"
+                "</div>"
+            )
+
+        header_html = gr.HTML(_build_header_html())
+        with gr.Row():
+            with gr.Column(scale=1):
+                language = gr.Dropdown(
+                    choices=[("English", "en"), ("中文", "zh")],
+                    value=get_lang(),
+                    label=t("语言"),
+                    interactive=True,
+                )
+            with gr.Column(scale=2):
+                language_status = gr.Markdown(value="")
+
         # 创建三个tab
         with gr.Tabs():
             # 推理tab
-            create_inference_tab()
+            inference_i18n = create_inference_tab()
             
             # 数据处理tab  
-            create_data_tab()
+            data_i18n = create_data_tab()
             
             # 训练tab
-            create_training_tab()
+            training_i18n = create_training_tab()
             
             # 说话人管理tab
-            create_speaker_manage_tab()
+            speaker_i18n = create_speaker_manage_tab()
         
         # 底部信息
-        gr.HTML(f"""
-        <div style="text-align: center; padding: 20px; margin-top: 30px; 
-                    border-top: 1px solid #eee; color: #7f8c8d;">
-            <p>🔗 后端服务: <code>{BACKEND}</code></p>
-            <p>💡 HydraVox - 让语音合成更简单</p>
-        </div>
-        """)
+        footer_html = gr.HTML(_build_footer_html())
+
+        def _apply_language(
+            lang: str,
+            synthesis_mode: str,
+            s3_device: str,
+            model_type: str,
+            device_choice: str,
+            precision_choice: str,
+            output_dir: str,
+        ):
+            set_lang(lang)
+            updates = [
+                gr.update(label=t("语言"), value=lang),
+                gr.update(value=t("语言已更新。")),
+                gr.update(value=_build_header_html()),
+                gr.update(value=_build_footer_html()),
+            ]
+            updates.extend(inference_i18n["apply"](synthesis_mode))
+            updates.extend(data_i18n["apply"](s3_device))
+            updates.extend(training_i18n["apply"](model_type, device_choice, precision_choice, output_dir))
+            updates.extend(speaker_i18n["apply"]())
+            return updates
+
+        language.change(
+            fn=_apply_language,
+            inputs=[
+                language,
+                inference_i18n["inputs"][0],
+                data_i18n["inputs"][0],
+                training_i18n["inputs"][0],
+                training_i18n["inputs"][1],
+                training_i18n["inputs"][2],
+                training_i18n["inputs"][3],
+            ],
+            outputs=[
+                language,
+                language_status,
+                header_html,
+                footer_html,
+                *inference_i18n["outputs"],
+                *data_i18n["outputs"],
+                *training_i18n["outputs"],
+                *speaker_i18n["outputs"],
+            ],
+        )
     
     return demo
 
@@ -115,13 +177,13 @@ def launch_ui(server_name: str = "0.0.0.0", server_port: int = 7860, simple: boo
     """
     if simple:
         demo = create_simple_ui()
-        print("🎵 启动 HydraVox 简单版界面...")
+        print(t("ui.simple_start"))
     else:
         demo = create_main_ui()
-        print("🚀 启动 HydraVox 完整版界面...")
+        print(t("ui.full_start"))
     
-    print(f"📡 服务地址: http://{server_name}:{server_port}")
-    print(f"🔗 后端地址: {BACKEND}")
+    print(t("ui.service_addr", server_name=server_name, server_port=server_port))
+    print(t("ui.backend_addr", backend=BACKEND))
     print("=" * 50)
     
     demo.launch(
@@ -143,9 +205,9 @@ def launch_main_ui(
     """启动完整版主界面"""
     demo = create_main_ui()
     
-    print("🚀 启动 HydraVox TTS 系统...")
-    print(f"📡 服务地址: http://{server_name}:{server_port}")
-    print(f"🔗 后端地址: {BACKEND}")
+    print(t("ui.system_start"))
+    print(t("ui.service_addr", server_name=server_name, server_port=server_port))
+    print(t("ui.backend_addr", backend=BACKEND))
     print("=" * 50)
     
     demo.launch(

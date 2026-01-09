@@ -11,6 +11,7 @@ import torch
 from pathlib import Path
 import threading
 import logging
+from ..i18n import t, msg, with_i18n, render
 
 # 训练脚本路径工具
 from pathlib import Path
@@ -30,7 +31,7 @@ class TrainingState:
         self.last_log_size: int = 0  # 记录上次日志文件大小
         self.plot_update_interval: float = 5.0  # 图表更新间隔（秒）
         # 日志显示缓存
-        self.cached_log_text: str = "等待开始训练..."
+        self.cached_log_text: str = t("等待开始训练...")
         self.last_log_update: float = 0
         self.log_cache_duration: float = 2.0  # 日志缓存2秒
         self.last_displayed_log_count: int = 0  # 上次显示的日志行数
@@ -63,14 +64,14 @@ def _auto_detect_device_and_processes() -> Tuple[str, int, str]:
     """返回 (device, num_processes, detail_msg). device 为 'GPU' 或 'CPU'。"""
     device = "CPU"
     num_proc = 1
-    detail = "CUDA 不可用，默认 CPU x1"
+    detail = t("CUDA 不可用，默认 CPU x1")
     try:
         import torch  # type: ignore
         if torch.cuda.is_available():
             n = torch.cuda.device_count() or 1
             device = "GPU"
             num_proc = n
-            detail = f"CUDA 可用，GPU 数: {n}"
+            detail = t("CUDA 可用，GPU 数: {count}", count=n)
     except Exception:
         pass
     return device, num_proc, detail
@@ -81,13 +82,15 @@ def _refresh_device_triplet():
     return detail, p, ("GPU" if d == "GPU" else "CPU")
 
 
+@with_i18n
 def save_training_config(config_dict: Dict[str, Any]):
     """保存训练配置"""
     config_path = "/tmp/training_config.json"
     with open(config_path, 'w', encoding='utf-8') as f:
         json.dump(config_dict, f, indent=2, ensure_ascii=False)
-    return f"配置已保存到: {config_path}"
+    return msg("training.config_saved", path=config_path)
 
+@with_i18n
 def start_training(
     dataset_path: str, 
     model_type: str,
@@ -114,10 +117,10 @@ def start_training(
     global training_state
     
     if training_state.is_training:
-        return "⚠️ 已有训练任务在运行中，请先停止当前训练"
+        return msg("training.task_running")
     
     if not dataset_path:
-        return "❌ 请先选择数据集文件"
+        return msg("training.select_dataset")
     
     # 精度选项
     use_fp16 = (precision_choice == "fp16")
@@ -126,7 +129,7 @@ def start_training(
     try:
         script_path = _train_script_path()
         if not script_path.exists():
-            return f"❌ 找不到训练脚本: {script_path}"
+            return msg("training.script_not_found", path=script_path)
 
         # 设置训练开始时间
         training_state.start_time = time.time()
@@ -136,7 +139,7 @@ def start_training(
         training_state.logging_steps = logging_steps  # 保存 logging_steps 值
         training_state.eval_steps = eval_steps  # 保存 eval_steps 值
         training_state.log_lines = []
-        training_state.cached_log_text = "正在启动训练..."
+        training_state.cached_log_text = t("正在启动训练...")
         training_state.last_log_update = 0
         training_state.last_displayed_log_count = 0
         training_state.last_log_size = 0
@@ -201,7 +204,7 @@ def start_training(
         # 设备选择与进程数
         dev_detect, max_gpus, _detail = _auto_detect_device_and_processes()
         chosen = device_choice
-        if chosen == "自动":
+        if chosen == "auto":
             chosen = "GPU" if dev_detect == "GPU" else "CPU"
         try:
             nproc = max(1, int(gpu_processes))
@@ -256,7 +259,7 @@ def start_training(
                 env=env,
             )
         except Exception as e:
-            return f"❌ 启动失败: {e}"
+            return msg("training.start_failed", error=e)
 
         training_state.is_training = True
         training_state.proc_pid = training_state.proc.pid if training_state.proc else None
@@ -307,18 +310,24 @@ def start_training(
         training_state.reader_thread = threading.Thread(target=_reader, daemon=True)
         training_state.reader_thread.start()
 
-        return f"✅ 训练任务已启动\n训练ID: {training_state.current_training_id}\nPID: {training_state.proc_pid}\n脚本: {script_path.name}"
+        return msg(
+            "training.started",
+            id=training_state.current_training_id,
+            pid=training_state.proc_pid,
+            script=script_path.name,
+        )
 
     except Exception as e:
         logger.error(f"启动训练失败: {e}")
-        return f"❌ 训练启动失败: {str(e)}"
+        return msg("training.start_failed_detail", error=str(e))
 
+@with_i18n
 def stop_training():
     """停止训练（终止子进程）。"""
     global training_state
     
     if not training_state.is_training or training_state.proc is None:
-        return "⚠️ 当前没有运行中的训练任务"
+        return msg("training.no_running_task")
     
     try:
         proc = training_state.proc
@@ -354,10 +363,10 @@ def stop_training():
                 training_state.log_file = None
             except Exception:
                 pass
-        return f"🛑 训练已停止 (退出码: {code})"
+        return msg("training.stopped", code=code)
     except Exception as e:
         logger.error(f"停止训练失败: {e}")
-        return f"❌ 停止训练失败: {str(e)}"
+        return msg("training.stop_failed", error=str(e))
 
 def get_training_logs():
     """获取本地子进程的训练日志（带缓存）。"""
@@ -366,7 +375,7 @@ def get_training_logs():
     current_time = time.time()
     
     if not training_state.current_training_id and not training_state.is_training:
-        training_state.cached_log_text = "暂无训练任务"
+        training_state.cached_log_text = t("training.no_task")
         return training_state.cached_log_text
     
     # 缓存控制
@@ -380,17 +389,17 @@ def get_training_logs():
         training_state.last_displayed_log_count = len(logs)
 
         header_info: List[str] = []
-        header_info.append(f"训练状态: {status}")
+        header_info.append(t("training.status_line", status=status))
         if training_state.current_training_id:
-            header_info.append(f"训练ID: {training_state.current_training_id}")
+            header_info.append(t("training.id_line", id=training_state.current_training_id))
         if training_state.start_time:
             st = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(training_state.start_time))
-            header_info.append(f"开始时间: {st}")
+            header_info.append(t("training.start_time_line", time=st))
         if training_state.end_time:
             et = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(training_state.end_time))
-            header_info.append(f"结束时间: {et}")
+            header_info.append(t("training.end_time_line", time=et))
         if logs:
-            header_info.append(f"日志行数: {len(logs)}")
+            header_info.append(t("training.log_lines_line", count=len(logs)))
         header_info.append("=" * 50)
         header_text = "\n".join(header_info) + "\n"
 
@@ -401,14 +410,18 @@ def get_training_logs():
             displayed = logs[-200:]
         log_content = "\n".join(displayed)
         if len(logs) > len(displayed):
-            log_content = f"... (省略了前{len(logs) - len(displayed)}行日志) ...\n\n" + log_content
+            log_content = (
+                t("training.log_omitted", count=len(logs) - len(displayed))
+                + "\n\n"
+                + log_content
+            )
 
         training_state.cached_log_text = header_text + log_content
         training_state.last_log_update = current_time
         return training_state.cached_log_text
     except Exception as e:
         logger.error(f"获取训练日志失败: {e}")
-        training_state.cached_log_text = f"获取日志失败: {str(e)}"
+        training_state.cached_log_text = t("training.log_fetch_failed", error=str(e))
         return training_state.cached_log_text
 
 def parse_training_logs(log_file_path: str) -> Dict[str, List[float]]:
@@ -847,13 +860,31 @@ def get_model_list(which: str = "llm"):
         logger.info(f"找到 {len(models)} 个模型文件夹")
         
         if not models:
-            models = [{"文件夹名称": "暂无训练输出", "路径": "请先进行模型训练", "内容": "", "大小": "", "时间": ""}]
+            models = [
+                {
+                    "文件夹名称": t("training.no_outputs"),
+                    "路径": t("training.train_first"),
+                    "内容": "",
+                    "大小": "",
+                    "时间": "",
+                }
+            ]
         
         return pd.DataFrame(models)
         
     except Exception as e:
         logger.error(f"获取模型列表失败: {e}")
-        return pd.DataFrame([{"文件夹名称": "获取失败", "路径": f"错误: {str(e)}", "内容": "", "大小": "", "时间": ""}])
+        return pd.DataFrame(
+            [
+                {
+                    "文件夹名称": t("training.model_list_failed"),
+                    "路径": t("training.error_prefix", error=str(e)),
+                    "内容": "",
+                    "大小": "",
+                    "时间": "",
+                }
+            ]
+        )
 
 def _scan_output_directory(output_path: Path, processed_folders: set):
     """扫描单个输出目录，返回找到的模型文件夹列表"""
@@ -896,12 +927,16 @@ def _scan_output_directory(output_path: Path, processed_folders: set):
                 relative_path = str(folder_path.relative_to(Path.cwd())) if folder_path.is_absolute() else str(folder_path)
                 
                 # 构建描述信息
-                description = f"{model_count}个模型文件" if model_count > 0 else "空文件夹"
+                description = (
+                    t("training.model_files_count", count=model_count)
+                    if model_count > 0
+                    else t("training.empty_folder")
+                )
                 if model_files:
                     # 只显示前3个文件名，如果更多则显示省略号
                     file_names = ", ".join(sorted(set(model_files))[:3])  # 去重并排序
                     if len(set(model_files)) > 3:
-                        file_names += f" 等{len(set(model_files))}个文件"
+                        file_names += t("training.more_files_suffix", count=len(set(model_files)))
                     description = file_names
                 
                 models.append({
@@ -917,18 +952,20 @@ def _scan_output_directory(output_path: Path, processed_folders: set):
     
     return models
 
+@with_i18n
 def load_model(model_name: str):
     """加载模型"""
     if not model_name:
-        gr.Warning("请选择模型")
-        return "请选择模型"
+        gr.Warning(render(msg("training.select_model")))
+        return msg("training.select_model")
     
-    return f"✅ 模型 {model_name} 加载成功"
+    return msg("training.model_loaded", model=model_name)
 
+@with_i18n
 def delete_model(folder_name: str):
     """删除模型文件夹"""
     if not folder_name:
-        return "⚠️ 请选择要删除的文件夹", get_model_list()
+        return msg("training.select_folder_delete"), get_model_list()
     
     try:
         import shutil
@@ -960,28 +997,29 @@ def delete_model(folder_name: str):
         if folder_path and folder_path.exists() and folder_path.is_dir():
             # 确认不是重要的系统文件夹
             if folder_path.name in ["runs", "logs", "figure"]:
-                return f"⚠️ 不允许删除系统文件夹: {folder_name}", get_model_list()
+                return msg("training.delete_system_folder", folder=folder_name), get_model_list()
             
             # 删除整个文件夹
             shutil.rmtree(folder_path)
             logger.info(f"已删除模型文件夹: {folder_path}")
-            return f"✅ 文件夹 {folder_name} 已删除", get_model_list()
+            return msg("training.folder_deleted", folder=folder_name), get_model_list()
         else:
-            return f"❌ 未找到文件夹: {folder_name}", get_model_list()
+            return msg("training.folder_not_found", folder=folder_name), get_model_list()
     
     except Exception as e:
         logger.error(f"删除文件夹失败: {e}")
-        return f"❌ 删除失败: {str(e)}", get_model_list()
+        return msg("training.delete_failed", error=str(e)), get_model_list()
 
 
+@with_i18n
 def convert_checkpoint_to_pt(folder_path_str: str):
     """将路径下的 pytorch_model.bin 转换为 model.pt（bf16）。"""
     if not folder_path_str:
-        return "⚠️ 请先在表格中选择一个路径"
+        return msg("training.select_path_first")
     try:
         base = Path(folder_path_str)
         if not base.exists() or not base.is_dir():
-            return f"❌ 路径无效: {base}"
+            return msg("training.invalid_path", path=base)
 
         bin_path = base / "pytorch_model.bin"
         if not bin_path.exists():
@@ -989,15 +1027,15 @@ def convert_checkpoint_to_pt(folder_path_str: str):
             if found:
                 bin_path = found[0]
             else:
-                return f"❌ 未找到 pytorch_model.bin 于: {base}"
+                return msg("training.bin_not_found", path=base)
 
         # 分片索引不支持
         if (base / "pytorch_model.bin.index.json").exists():
-            return "❌ 暂不支持分片权重（.bin.index.json），请先合并再转换"
+            return msg("training.sharded_not_supported")
 
         state = torch.load(str(bin_path), map_location="cpu")
         if not isinstance(state, dict):
-            return "❌ 权重文件格式不符合预期（非state_dict）"
+            return msg("training.state_dict_invalid")
 
         def to_bf16_tensor(val):
             if isinstance(val, torch.Tensor) and val.is_floating_point():
@@ -1021,9 +1059,9 @@ def convert_checkpoint_to_pt(folder_path_str: str):
         converted = {k: to_bf16_tensor(v) for k, v in normalized.items()}
         out_path = base / "model.pt"
         torch.save(converted, str(out_path))
-        return f"✅ 转换完成: {bin_path.name} → {out_path} (bf16)"
+        return msg("training.convert_done", src=bin_path.name, dst=out_path)
     except Exception as e:
-        return f"❌ 转换失败: {e}"
+        return msg("training.convert_failed", error=e)
 
 def update_batch_size_constraints(model_type: str):
     """根据模型类型更新batch_size推荐值"""
@@ -1039,19 +1077,19 @@ def update_precision_options(model_type: str):
     if model_type == "llm":
         # LLM模型推荐BF16
         choices = [
-            ("BF16（推荐）", "bf16"),
-            ("FP16", "fp16")
+            (t("BF16（推荐）"), "bf16"),
+            ("FP16", "fp16"),
         ]
         value = "bf16"
-        info_text = "💡 **LLM模型**: 推荐使用BF16精度以获得更好的数值稳定性"
+        info_text = t("💡 **LLM模型**: 推荐使用BF16精度以获得更好的数值稳定性")
     else:
         # Flow模型推荐FP16
         choices = [
-            ("FP16（推荐）", "fp16"),
-            ("BF16", "bf16")
+            (t("FP16（推荐）"), "fp16"),
+            ("BF16", "bf16"),
         ]
         value = "fp16"
-        info_text = "💡 **Flow模型**: 推荐使用FP16精度以节省显存和提升速度"
+        info_text = t("💡 **Flow模型**: 推荐使用FP16精度以节省显存和提升速度")
     
     return (
         gr.update(choices=choices, value=value),  # precision_choice radio
@@ -1060,102 +1098,115 @@ def update_precision_options(model_type: str):
 
 def create_training_tab():
     """创建训练tab界面"""
-    with gr.Tab("🚀 模型训练"):
-        gr.Markdown("### TTS 模型训练")
+    with gr.Tab(t("🚀 模型训练")):
+        title_md = gr.Markdown(t("### TTS 模型训练"))
         # 设备默认值
         device_default, proc_default, device_detail = _auto_detect_device_and_processes()
         
         with gr.Row():
             with gr.Column(scale=1):
                 # 数据集选择
-                gr.Markdown("#### 1. 数据集配置")
+                dataset_title_md = gr.Markdown(t("#### 1. 数据集配置"))
                 dataset_file = gr.Textbox(
-                    label="训练数据路径",
-                    placeholder="输入训练数据路径，如: data/processed/train_ds",
+                    label=t("训练数据路径"),
+                    placeholder=t("输入训练数据路径，如: data/processed/train_ds"),
                     value="data/processed/train_ds"
                 )
                 
                 # 模型配置
-                gr.Markdown("#### 2. 模型配置")
+                model_title_md = gr.Markdown(t("#### 2. 模型配置"))
                 with gr.Group():
                     model_type = gr.Dropdown(
                         choices=["llm", "flow"],
                         value="llm",
-                        label="模型类型"
+                        label=t("模型类型"),
                     )
                     model_checkpoint = gr.Textbox(
-                        label="模型检查点路径",
+                        label=t("模型检查点路径"),
                         value="jzx-ai-lab/HydraVox-CV3/llm.pt",
-                        placeholder="预训练模型路径"
+                        placeholder=t("预训练模型路径"),
                     )
                     tokenizer_path = gr.Textbox(
-                        label="分词器路径",
+                        label=t("分词器路径"),
                         value="jzx-ai-lab/HydraVox-CV3/CosyVoice-BlankEN",
-                        placeholder="分词器模型路径"
+                        placeholder=t("分词器模型路径"),
                     )
                     output_dir = gr.Textbox(
-                        label="输出目录",
+                        label=t("输出目录"),
                         value="checkpoints/training_llm",
-                        placeholder="训练输出保存目录"
+                        placeholder=t("训练输出保存目录"),
                     )
                 
                 # 训练参数配置
-                gr.Markdown("#### 3. 训练参数")
+                params_title_md = gr.Markdown(t("#### 3. 训练参数"))
                 with gr.Group():
-                    batch_size = gr.Slider(1, 32, value=4, step=1, label="批次大小", maximum=1, interactive=True)
-                    learning_rate = gr.Number(value=1e-5, label="学习率", minimum=1e-6, maximum=1e-2)
-                    epochs = gr.Slider(1, 100, value=5, step=1, label="训练轮数")
-                    save_interval = gr.Slider(100, 10000, value=1000, step=100, label="保存间隔(步数)")
-                    logging_steps = gr.Slider(10, 500, value=50, step=10, label="日志记录间隔(步数)")
-                    eval_steps = gr.Slider(50, 2000, value=500, step=50, label="评估间隔(步数)")
+                    batch_size = gr.Slider(
+                        1, 32, value=4, step=1, label=t("批次大小"), maximum=1, interactive=True
+                    )
+                    learning_rate = gr.Number(
+                        value=1e-5, label=t("学习率"), minimum=1e-6, maximum=1e-2
+                    )
+                    epochs = gr.Slider(1, 100, value=5, step=1, label=t("训练轮数"))
+                    save_interval = gr.Slider(100, 10000, value=1000, step=100, label=t("保存间隔(步数)"))
+                    logging_steps = gr.Slider(10, 500, value=50, step=10, label=t("日志记录间隔(步数)"))
+                    eval_steps = gr.Slider(50, 2000, value=500, step=50, label=t("评估间隔(步数)"))
                 
                 with gr.Group():
-                    validation_split = gr.Slider(0.00, 0.3, value=0.05, step=0.01, label="验证集比例")
-                    use_auto_split = gr.Checkbox(label="自动划分验证集", value=True)
+                    validation_split = gr.Slider(
+                        0.00, 0.3, value=0.05, step=0.01, label=t("验证集比例")
+                    )
+                    use_auto_split = gr.Checkbox(label=t("自动划分验证集"), value=True)
                     
                 # 高级选项
-                gr.Markdown("#### 4. 高级选项")
+                advanced_title_md = gr.Markdown(t("#### 4. 高级选项"))
                 with gr.Group():
-                    enable_lora = gr.Checkbox(label="启用LoRA微调", value=False)
+                    enable_lora = gr.Checkbox(label=t("启用LoRA微调"), value=False)
                     precision_choice = gr.Radio(
                         choices=[
-                            ("BF16（推荐）", "bf16"),
-                            ("FP16", "fp16")
+                            (t("BF16（推荐）"), "bf16"),
+                            ("FP16", "fp16"),
                         ],
                         value="bf16",
-                        label="精度设置"
+                        label=t("精度设置"),
                     )
-                    precision_info = gr.Markdown("💡 **LLM模型**: 推荐使用BF16精度以获得更好的数值稳定性", visible=True)
+                    precision_info = gr.Markdown(
+                        t("💡 **LLM模型**: 推荐使用BF16精度以获得更好的数值稳定性"),
+                        visible=True,
+                    )
 
                 # 计算资源设置
-                gr.Markdown("#### 5. 计算资源设置")
+                compute_title_md = gr.Markdown(t("#### 5. 计算资源设置"))
                 with gr.Group():
                     with gr.Row():
                         device_choice = gr.Dropdown(
-                            choices=["自动", "CPU", "GPU"],
+                            choices=[(t("自动"), "auto"), ("CPU", "CPU"), ("GPU", "GPU")],
                             value=("GPU" if device_default == "GPU" else "CPU"),
-                            label="💻 计算设备"
+                            label=t("💻 计算设备"),
                         )
-                        gpu_processes = gr.Number(value=proc_default, label="🔄 并行进程数 (GPU数)")
+                        gpu_processes = gr.Number(
+                            value=proc_default, label=t("🔄 并行进程数 (GPU数)")
+                        )
                     with gr.Row():
-                        gpu_ids = gr.Textbox(label="🎯 GPU IDs (可选)", placeholder="例如: 0,1")
-                        detect_btn = gr.Button("🔄 刷新设备检测", variant="secondary")
-                    device_info = gr.Textbox(value=device_detail, label="ℹ️ 设备检测信息", interactive=False)
+                        gpu_ids = gr.Textbox(label=t("🎯 GPU IDs (可选)"), placeholder=t("例如: 0,1"))
+                        detect_btn = gr.Button(t("🔄 刷新设备检测"), variant="secondary")
+                    device_info = gr.Textbox(
+                        value=device_detail, label=t("ℹ️ 设备检测信息"), interactive=False
+                    )
 
                 # 控制按钮
-                gr.Markdown("#### 6. 训练控制")
-                start_btn = gr.Button("🚀 开始训练", variant="primary")
-                stop_btn = gr.Button("🛑 停止训练", variant="stop")
-                refresh_log_btn = gr.Button("🔄 刷新日志", variant="secondary")
+                control_title_md = gr.Markdown(t("#### 6. 训练控制"))
+                start_btn = gr.Button(t("🚀 开始训练"), variant="primary")
+                stop_btn = gr.Button(t("🛑 停止训练"), variant="stop")
+                refresh_log_btn = gr.Button(t("🔄 刷新日志"), variant="secondary")
                 
             with gr.Column(scale=2):
                 # 训练状态
-                gr.Markdown("#### 训练状态与日志")
+                status_title_md = gr.Markdown(t("#### 训练状态与日志"))
                 training_status = gr.Textbox(
-                    label="训练日志",
+                    label=t("训练日志"),
                     lines=15,
                     interactive=False,
-                    value="等待开始训练...",
+                    value=t("等待开始训练..."),
                     max_lines=30
                 )
                 
@@ -1163,27 +1214,29 @@ def create_training_tab():
                 log_timer = gr.Timer(value=5)  # 每5秒刷新日志
                 
                 # 训练曲线
-                gr.Markdown("#### 训练曲线")
+                plot_title_md = gr.Markdown(t("#### 训练曲线"))
                 with gr.Row():
                     with gr.Column(scale=3):
-                        training_plot = gr.Image(label="训练指标曲线", value=None)
+                        training_plot = gr.Image(label=t("训练指标曲线"), value=None)
                     with gr.Column(scale=1):
-                        gr.Markdown("**图表设置**")
-                        auto_refresh_plot = gr.Checkbox(label="自动刷新图表", value=True)
+                        chart_settings_md = gr.Markdown(t("**图表设置**"))
+                        auto_refresh_plot = gr.Checkbox(label=t("自动刷新图表"), value=True)
                         plot_refresh_interval = gr.Slider(
                             minimum=5, maximum=60, value=15, step=5,
-                            label="刷新间隔(秒)", interactive=True
+                            label=t("刷新间隔(秒)"), interactive=True
                         )
                         with gr.Row():
-                            refresh_plot_btn = gr.Button("🔄 立即刷新", variant="secondary")
-                            force_refresh_btn = gr.Button("⚡ 强制刷新", variant="primary")
+                            refresh_plot_btn = gr.Button(t("🔄 立即刷新"), variant="secondary")
+                            force_refresh_btn = gr.Button(t("⚡ 强制刷新"), variant="primary")
                         
                         plot_save_info = gr.Markdown(
-                            """
-                            **💾 图表存储位置**  
-                            训练图表会实时更新并保存到：  
-                            `checkpoints/training/figure/training_plot.png`  
-                            """,
+                            "\n".join(
+                                [
+                                    f"{t('**💾 图表存储位置**')}  ",
+                                    f"{t('训练图表会实时更新并保存到：')}  ",
+                                    "`checkpoints/training/figure/training_plot.png`  ",
+                                ]
+                            ),
                             elem_classes=["tiny-muted"]
                         )
                 
@@ -1191,44 +1244,48 @@ def create_training_tab():
                 plot_timer = gr.Timer(value=15)  # 默认15秒刷新一次图表
         
         # 模型管理
-        gr.Markdown("### 模型管理")
+        model_mgmt_md = gr.Markdown(t("### 模型管理"))
         with gr.Row():
             with gr.Column(scale=2):
                 # 仅显示路径一级（按模型类型显示，初始为 llm）
                 _df_paths = get_model_list("llm")[ ["路径"] ]
                 model_list = gr.Dataframe(
                     value=_df_paths,
-                    headers=["路径"],
-                    label="训练输出路径",
+                    headers=[t("路径")],
+                    label=t("训练输出路径"),
                     interactive=False
                 )
                 
             with gr.Column(scale=1):
-                gr.Markdown("#### 文件夹操作")
-                selected_model = gr.Textbox(label="选择的文件夹", placeholder="点击表格行选择文件夹")
+                folder_title_md = gr.Markdown(t("#### 文件夹操作"))
+                selected_model = gr.Textbox(
+                    label=t("选择的文件夹"), placeholder=t("点击表格行选择文件夹")
+                )
                 
                 with gr.Row():
-                    refresh_models_btn = gr.Button("🔄 刷新列表", variant="secondary")
+                    refresh_models_btn = gr.Button(t("🔄 刷新列表"), variant="secondary")
                 
                 with gr.Row():
-                    load_btn = gr.Button("📂 加载路径", variant="primary")
-                    delete_btn = gr.Button("🗑️ 删除路径", variant="stop")
+                    load_btn = gr.Button(t("📂 加载路径"), variant="primary")
+                    delete_btn = gr.Button(t("🗑️ 删除路径"), variant="stop")
                 with gr.Row():
-                    convert_btn = gr.Button("🔁 转换为 model.pt (bf16)", variant="primary")
+                    convert_btn = gr.Button(t("🔁 转换为 model.pt (bf16)"), variant="primary")
                 
                 model_status = gr.Textbox(
-                    label="操作状态",
+                    label=t("操作状态"),
                     interactive=False
                 )
         
         
         # 动态更新图表存储位置提示
         def update_plot_save_info(output_dir_value):
-            return f"""
-            **💾 图表存储位置**  
-            训练图表会实时更新并保存到：  
-            `{output_dir_value}/figure/training_plot.png`  
-            """
+            return "\n".join(
+                [
+                    f"{t('**💾 图表存储位置**')}  ",
+                    f"{t('训练图表会实时更新并保存到：')}  ",
+                    f"`{output_dir_value}/figure/training_plot.png`  ",
+                ]
+            )
         
         output_dir.change(
             fn=update_plot_save_info,
@@ -1393,4 +1450,135 @@ def create_training_tab():
             inputs=[],
             outputs=[device_info, gpu_processes, device_choice]
         )
+
+        def _apply_language(model_type_val: str, device_value: str, precision_value: str, output_dir_value: str):
+            _device_default, _proc_default, device_detail = _auto_detect_device_and_processes()
+            if model_type_val == "llm":
+                precision_choices = [(t("BF16（推荐）"), "bf16"), ("FP16", "fp16")]
+                precision_info_text = t("💡 **LLM模型**: 推荐使用BF16精度以获得更好的数值稳定性")
+            else:
+                precision_choices = [(t("FP16（推荐）"), "fp16"), ("BF16", "bf16")]
+                precision_info_text = t("💡 **Flow模型**: 推荐使用FP16精度以节省显存和提升速度")
+
+            plot_info = "\n".join(
+                [
+                    f"{t('**💾 图表存储位置**')}  ",
+                    f"{t('训练图表会实时更新并保存到：')}  ",
+                    f"`{output_dir_value}/figure/training_plot.png`  ",
+                ]
+            )
+
+            return [
+                gr.update(value=t("### TTS 模型训练")),
+                gr.update(value=t("#### 1. 数据集配置")),
+                gr.update(value=t("#### 2. 模型配置")),
+                gr.update(value=t("#### 3. 训练参数")),
+                gr.update(value=t("#### 4. 高级选项")),
+                gr.update(value=t("#### 5. 计算资源设置")),
+                gr.update(value=t("#### 6. 训练控制")),
+                gr.update(value=t("#### 训练状态与日志")),
+                gr.update(value=t("#### 训练曲线")),
+                gr.update(value=t("**图表设置**")),
+                gr.update(value=t("### 模型管理")),
+                gr.update(value=t("#### 文件夹操作")),
+                gr.update(label=t("训练数据路径"), placeholder=t("输入训练数据路径，如: data/processed/train_ds")),
+                gr.update(label=t("模型类型")),
+                gr.update(label=t("模型检查点路径"), placeholder=t("预训练模型路径")),
+                gr.update(label=t("分词器路径"), placeholder=t("分词器模型路径")),
+                gr.update(label=t("输出目录"), placeholder=t("训练输出保存目录")),
+                gr.update(label=t("批次大小")),
+                gr.update(label=t("学习率")),
+                gr.update(label=t("训练轮数")),
+                gr.update(label=t("保存间隔(步数)")),
+                gr.update(label=t("日志记录间隔(步数)")),
+                gr.update(label=t("评估间隔(步数)")),
+                gr.update(label=t("验证集比例")),
+                gr.update(label=t("自动划分验证集")),
+                gr.update(label=t("启用LoRA微调")),
+                gr.update(choices=precision_choices, value=precision_value, label=t("精度设置")),
+                gr.update(value=precision_info_text),
+                gr.update(
+                    choices=[(t("自动"), "auto"), ("CPU", "CPU"), ("GPU", "GPU")],
+                    value=device_value,
+                    label=t("💻 计算设备"),
+                ),
+                gr.update(label=t("🔄 并行进程数 (GPU数)")),
+                gr.update(label=t("🎯 GPU IDs (可选)"), placeholder=t("例如: 0,1")),
+                gr.update(value=t("🔄 刷新设备检测")),
+                gr.update(value=device_detail, label=t("ℹ️ 设备检测信息")),
+                gr.update(value=t("🚀 开始训练")),
+                gr.update(value=t("🛑 停止训练")),
+                gr.update(value=t("🔄 刷新日志")),
+                gr.update(label=t("训练日志")),
+                gr.update(label=t("训练指标曲线")),
+                gr.update(label=t("自动刷新图表")),
+                gr.update(label=t("刷新间隔(秒)")),
+                gr.update(value=t("🔄 立即刷新")),
+                gr.update(value=t("⚡ 强制刷新")),
+                gr.update(value=plot_info),
+                gr.update(headers=[t("路径")], label=t("训练输出路径")),
+                gr.update(label=t("选择的文件夹"), placeholder=t("点击表格行选择文件夹")),
+                gr.update(value=t("🔄 刷新列表")),
+                gr.update(value=t("📂 加载路径")),
+                gr.update(value=t("🗑️ 删除路径")),
+                gr.update(value=t("🔁 转换为 model.pt (bf16)")),
+                gr.update(label=t("操作状态")),
+            ]
+
+        return {
+            "outputs": [
+                title_md,
+                dataset_title_md,
+                model_title_md,
+                params_title_md,
+                advanced_title_md,
+                compute_title_md,
+                control_title_md,
+                status_title_md,
+                plot_title_md,
+                chart_settings_md,
+                model_mgmt_md,
+                folder_title_md,
+                dataset_file,
+                model_type,
+                model_checkpoint,
+                tokenizer_path,
+                output_dir,
+                batch_size,
+                learning_rate,
+                epochs,
+                save_interval,
+                logging_steps,
+                eval_steps,
+                validation_split,
+                use_auto_split,
+                enable_lora,
+                precision_choice,
+                precision_info,
+                device_choice,
+                gpu_processes,
+                gpu_ids,
+                detect_btn,
+                device_info,
+                start_btn,
+                stop_btn,
+                refresh_log_btn,
+                training_status,
+                training_plot,
+                auto_refresh_plot,
+                plot_refresh_interval,
+                refresh_plot_btn,
+                force_refresh_btn,
+                plot_save_info,
+                model_list,
+                selected_model,
+                refresh_models_btn,
+                load_btn,
+                delete_btn,
+                convert_btn,
+                model_status,
+            ],
+            "apply": _apply_language,
+            "inputs": [model_type, device_choice, precision_choice, output_dir],
+        }
        

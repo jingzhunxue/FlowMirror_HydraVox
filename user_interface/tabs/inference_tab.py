@@ -3,6 +3,7 @@ from typing import Tuple, List, Dict, Optional
 import logging
 import soundfile as sf
 from pathlib import Path
+from ..i18n import t
 
 logger = logging.getLogger("inference_tab")
 
@@ -15,6 +16,9 @@ SAMPLES_DIR = PROJECT_ROOT / "assets/samples"
 # 默认参考音频配置（使用相对路径）
 DEFAULT_REFERENCE_AUDIO = PROJECT_ROOT / "assets/samples/浪浪山的小妖怪/小猪妖/小猪妖1.wav"
 DEFAULT_REFERENCE_TEXT_FILE = PROJECT_ROOT / "assets/samples/浪浪山的小妖怪/小猪妖/小猪妖1.txt"
+
+MODE_PRESET = "preset"
+MODE_ZERO_SHOT = "zero_shot"
 
 def scan_reference_samples() -> Dict[str, Dict[str, Path]]:
     """扫描assets/samples目录，获取所有可用的参考音频和文本文件"""
@@ -102,15 +106,15 @@ def list_pt_files_from_env(env_var: str, key_word: str = "") -> List[str]:
 def refresh_speakers():
     """刷新说话人列表，并返回下拉框更新与信息文本"""
     speakers = get_speakers()
-    info = f"可用说话人：{len(speakers)} 个"
+    info = t("可用说话人：{count} 个", count=len(speakers))
     return gr.update(choices=speakers, value=speakers[0] if speakers else "default"), info
 
 def load_pt(llm_pt: str, flow_pt: str):
     """加载模型权重，返回面向用户的状态文本，并弹出提示。"""
     try:
         if not llm_pt or not flow_pt:
-            gr.Warning("请选择 LLM 与 Flow 权重文件后再加载。")
-            return "❗ 请先选择 LLM 与 Flow 权重文件。"
+            gr.Warning(t("请选择 LLM 与 Flow 权重文件后再加载。"))
+            return t("❗ 请先选择 LLM 与 Flow 权重文件。")
 
         payload = {
             "llm_pt": llm_pt,
@@ -121,12 +125,17 @@ def load_pt(llm_pt: str, flow_pt: str):
         data = resp.json()
         # 兼容后端不同返回格式
         msg = data.get("message") if isinstance(data, dict) else str(data)
-        gr.Info("模型权重加载成功")
-        return f"✅ 加载成功\nLLM: {llm_pt}\nFlow: {flow_pt}\n消息: {msg}"
+        gr.Info(t("模型权重加载成功"))
+        return t(
+            "✅ 加载成功\nLLM: {llm}\nFlow: {flow}\n消息: {msg}",
+            llm=llm_pt,
+            flow=flow_pt,
+            msg=msg,
+        )
     except Exception as e:
         logger.error(f"加载模型失败: {e}")
-        gr.Warning(f"加载失败: {e}")
-        return f"❌ 加载失败: {e}"
+        gr.Warning(t("加载失败: {error}", error=e))
+        return t("❌ 加载失败: {error}", error=e)
 
 def tts_once(
     text: str,
@@ -246,9 +255,9 @@ def synthesis_wrapper(
     inference_head_num: int,
 ) -> Tuple[int, np.ndarray]:
     """合成包装函数，根据模式选择不同的合成方式"""
-    if synthesis_mode == "预设说话人":
+    if synthesis_mode == MODE_PRESET:
         return tts_once(text, speaker_id, top_p, top_k, win_size, tau_r, speed, inference_head_num)
-    elif synthesis_mode == "Zero-shot":
+    elif synthesis_mode == MODE_ZERO_SHOT:
         if not prompt_text.strip():
             logger.error("Zero-shot模式下提示文本不能为空")
             return None
@@ -328,7 +337,7 @@ def load_reference_sample(sample_name: str) -> Tuple[Optional[Tuple[int, np.ndar
 
 def toggle_synthesis_mode(mode: str):
     """切换合成模式时的界面更新"""
-    if mode == "预设说话人":
+    if mode == MODE_PRESET:
         return (
             gr.update(visible=True),   # speaker_row
             gr.update(visible=False),  # zero_shot_row
@@ -336,7 +345,7 @@ def toggle_synthesis_mode(mode: str):
             gr.update(value=None),     # prompt_audio
             gr.update(visible=False),  # reference_preset
         )
-    elif mode == "Zero-shot":
+    elif mode == MODE_ZERO_SHOT:
         # 获取样本列表
         sample_names = list(REFERENCE_SAMPLES.keys())
         
@@ -369,21 +378,46 @@ def toggle_synthesis_mode(mode: str):
             gr.update(visible=False),  # reference_preset
         )
 
+def _build_inference_header() -> str:
+    title = t("TTS 语音合成")
+    subtitle = t("即时文本转语音 · 支持多说话人")
+    return (
+        "<div style=\"display:flex;align-items:center;gap:10px;margin:8px 0 2px 0;\">"
+        f"<h3 style=\"margin:0;color:#2c3e50;\">{title}</h3>"
+        f"<span style=\"font-size:12px;color:#95a5a6;\">{subtitle}</span>"
+        "</div>"
+    )
+
+
+def _build_preset_header() -> str:
+    preset_title = t("预设说话人")
+    preset_subtitle = t("选择预训练的发音人")
+    return (
+        "<div style=\"display:flex;align-items:center;gap:8px;margin:8px 0 4px 0;\">"
+        f"<span style=\"font-weight:600;color:#34495e;\">{preset_title}</span>"
+        f"<span style=\"font-size:12px;color:#95a5a6;\">{preset_subtitle}</span>"
+        "</div>"
+    )
+
+
+def _build_zero_shot_header() -> str:
+    zero_title = t("Zero-shot 语音克隆")
+    zero_subtitle = t("选择或上传参考音频进行语音克隆")
+    return (
+        "<div style=\"display:flex;align-items:center;gap:8px;margin:8px 0 4px 0;\">"
+        f"<span style=\"font-weight:600;color:#34495e;\">{zero_title}</span>"
+        f"<span style=\"font-size:12px;color:#95a5a6;\">{zero_subtitle}</span>"
+        "</div>"
+    )
+
 def clear_inputs():
     """清空输入与输出"""
     return "", None, "", None
 
 def create_inference_tab():
     """创建推理tab界面（精简与美化）"""
-    with gr.Tab("🎤 语音合成"):
-        gr.Markdown(
-            """
-            <div style=\"display:flex;align-items:center;gap:10px;margin:8px 0 2px 0;\">
-                <h3 style=\"margin:0;color:#2c3e50;\">TTS 语音合成</h3>
-                <span style=\"font-size:12px;color:#95a5a6;\">即时文本转语音 · 支持多说话人</span>
-            </div>
-            """
-        )
+    with gr.Tab(t("🎤 语音合成")) as tab:
+        header_md = gr.Markdown(_build_inference_header())
         
         # 新增：模型权重选择（来自环境变量目录）
         with gr.Row(equal_height=True):
@@ -392,7 +426,7 @@ def create_inference_tab():
                 llm_weight = gr.Dropdown(
                     choices=llm_choices,
                     value=(llm_choices[0] if llm_choices else None),
-                    label="LLM 权重 (llm.pt)",
+                    label=t("LLM 权重 (llm.pt)"),
                     allow_custom_value=True,
                     interactive=True,
                 )
@@ -401,13 +435,13 @@ def create_inference_tab():
                 flow_weight = gr.Dropdown(
                     choices=flow_choices,
                     value=(flow_choices[0] if flow_choices else None),
-                    label="Flow 权重 (flow.pt)",
+                    label=t("Flow 权重 (flow.pt)"),
                     allow_custom_value=True,
                     interactive=True,
                 )
             with gr.Column(scale=1):
                 # 通过elem_id应用垂直居中样式
-                load_pt_btn = gr.Button("🔄 加载模型", variant="secondary", elem_id="load-pt-btn")
+                load_pt_btn = gr.Button(t("🔄 加载模型"), variant="secondary", elem_id="load-pt-btn")
         # 模型加载状态显示
         model_load_info = gr.Markdown(value="", elem_classes=["tiny-muted"])
         # 局部样式：让按钮容器充满列高并垂直居中
@@ -422,41 +456,37 @@ def create_inference_tab():
         with gr.Row():
             with gr.Column(scale=2):
                 single_text = gr.Textbox(
-                    label="输入文本",
-                    value="你好，这是一个基于 HTTP 的 TTS 演示。",
-                    placeholder="请输入要合成的文本...",
+                    label=t("输入文本"),
+                    value=t("你好，这是一个基于 HTTP 的 TTS 演示。"),
+                    placeholder=t("请输入要合成的文本..."),
                     lines=4,
                 )
                 
-                gr.Examples(
+                examples = gr.Examples(
                     examples=[
-                        "今天天气很好，适合出去走走。",
-                        "欢迎使用 HydraVox,多头预测让语音更自然。",
-                        "请在提示框中输入你想要合成的文本内容。",
+                        t("今天天气很好，适合出去走走。"),
+                        t("欢迎使用 HydraVox,多头预测让语音更自然。"),
+                        t("请在提示框中输入你想要合成的文本内容。"),
                     ],
                     inputs=[single_text],
-                    label="示例"
+                    label=t("示例")
                 )
             
             with gr.Column(scale=1):
                 # 合成模式选择
                 synthesis_mode = gr.Radio(
-                    choices=["预设说话人", "Zero-shot"],
-                    value="预设说话人",
-                    label="合成模式"
+                    choices=[(t("预设说话人"), MODE_PRESET), (t("Zero-shot"), MODE_ZERO_SHOT)],
+                    value=MODE_PRESET,
+                    label=t("合成模式")
                 )
-                gr.Markdown("*选择使用预设说话人或Zero-shot语音克隆*", elem_classes=["tiny-muted"])
+                synthesis_tip = gr.Markdown(
+                    t("*选择使用预设说话人或Zero-shot语音克隆*"),
+                    elem_classes=["tiny-muted"],
+                )
                 
                 # 预设说话人模式界面
                 with gr.Group(visible=True) as speaker_row:
-                    gr.HTML(
-                        """
-                        <div style=\"display:flex;align-items:center;gap:8px;margin:8px 0 4px 0;\">
-                            <span style=\"font-weight:600;color:#34495e;\">预设说话人</span>
-                            <span style=\"font-size:12px;color:#95a5a6;\">选择预训练的发音人</span>
-                        </div>
-                        """
-                    )
+                    preset_header = gr.HTML(_build_preset_header())
                     speakers_init = get_speakers()
                     with gr.Row():
                         with gr.Column(scale=3):
@@ -467,54 +497,56 @@ def create_inference_tab():
                                 allow_custom_value=False,
                             )
                         with gr.Column(scale=1):
-                            refresh_btn = gr.Button("↻ 刷新", variant="secondary", min_width=80)
+                            refresh_btn = gr.Button(t("↻ 刷新"), variant="secondary", min_width=80)
                     speaker_info = gr.Markdown(
-                        value=f"可用说话人：{len(speakers_init)} 个",
+                        value=t("可用说话人：{count} 个", count=len(speakers_init)),
                         elem_classes=["tiny-muted"]
                     )
                 
                 # Zero-shot模式界面
                 with gr.Group(visible=False) as zero_shot_row:
-                    gr.HTML(
-                        """
-                        <div style=\"display:flex;align-items:center;gap:8px;margin:8px 0 4px 0;\">
-                            <span style=\"font-weight:600;color:#34495e;\">Zero-shot 语音克隆</span>
-                            <span style=\"font-size:12px;color:#95a5a6;\">选择或上传参考音频进行语音克隆</span>
-                        </div>
-                        """
-                    )
+                    zero_shot_header = gr.HTML(_build_zero_shot_header())
                     
                     # 预设参考音频选择
                     sample_names = list(REFERENCE_SAMPLES.keys())
                     reference_preset = gr.Dropdown(
                         choices=sample_names,
                         value=sample_names[0] if sample_names else None,
-                        label="预设参考音频",
+                        label=t("预设参考音频"),
                         visible=False,
                         interactive=True,
                     )
-                    gr.Markdown("*选择一个预设的参考音频，或者上传自己的音频文件*", elem_classes=["tiny-muted"])
+                    reference_tip = gr.Markdown(
+                        t("*选择一个预设的参考音频，或者上传自己的音频文件*"),
+                        elem_classes=["tiny-muted"],
+                    )
                     
                     # 获取默认音频和文本
                     default_audio, default_text = load_default_reference_audio()
                     
                     prompt_text = gr.Textbox(
-                        label="参考音频对应文本 (ASR内容)",
-                        placeholder="请输入参考音频中说话人说的内容...",
+                        label=t("参考音频对应文本 (ASR内容)"),
+                        placeholder=t("请输入参考音频中说话人说的内容..."),
                         lines=2,
                         value=default_text
                     )
-                    gr.Markdown("*请准确输入参考音频中的文字内容，这将用于语音克隆*", elem_classes=["tiny-muted"])
+                    prompt_tip = gr.Markdown(
+                        t("*请准确输入参考音频中的文字内容，这将用于语音克隆*"),
+                        elem_classes=["tiny-muted"],
+                    )
                     
                     prompt_audio = gr.Audio(
-                        label="参考音频",
+                        label=t("参考音频"),
                         type="numpy",
                         value=default_audio
                     )
-                    gr.Markdown("*你可以从上方选择预设音频，或者直接上传自己的音频文件*", elem_classes=["tiny-muted"])
+                    audio_tip = gr.Markdown(
+                        t("*你可以从上方选择预设音频，或者直接上传自己的音频文件*"),
+                        elem_classes=["tiny-muted"],
+                    )
         
         with gr.Row():
-            with gr.Accordion("高级设置", open=False):
+            with gr.Accordion(t("高级设置"), open=False) as advanced_settings:
                 with gr.Row():
                     top_p = gr.Slider(0.0, 1.0, value=0.9, step=0.01, label="top_p")
                     top_k = gr.Slider(1, 100, value=10, step=1, label="top_k")
@@ -525,11 +557,11 @@ def create_inference_tab():
                 inference_head_num = gr.Slider(1, 5, value=2, step=1, label="inference_head_num")
         
         with gr.Row():
-            synth_btn = gr.Button("🎵 合成", variant="primary", min_width=120)
-            clear_btn = gr.Button("🧹 清空", variant="secondary", min_width=100)
+            synth_btn = gr.Button(t("🎵 合成"), variant="primary", min_width=120)
+            clear_btn = gr.Button(t("🧹 清空"), variant="secondary", min_width=100)
         
         audio_out = gr.Audio(
-            label="合成音频",
+            label=t("合成音频"),
             type="numpy",
             streaming=False,
             autoplay=True,
@@ -586,4 +618,65 @@ def create_inference_tab():
             outputs=[model_load_info],
         )
         
-        gr.Markdown(f"**后端地址**: `{BACKEND}`") 
+        backend_md = gr.Markdown(t("**后端地址**: `{backend}`", backend=BACKEND))
+
+    def _apply_language(mode_value: str):
+        speakers = get_speakers()
+        sample_names = list(REFERENCE_SAMPLES.keys())
+        return [
+            gr.update(value=_build_inference_header()),
+            gr.update(label=t("LLM 权重 (llm.pt)")),
+            gr.update(label=t("Flow 权重 (flow.pt)")),
+            gr.update(value=t("🔄 加载模型")),
+            gr.update(label=t("输入文本"), placeholder=t("请输入要合成的文本...")),
+            gr.update(
+                choices=[(t("预设说话人"), MODE_PRESET), (t("Zero-shot"), MODE_ZERO_SHOT)],
+                value=mode_value,
+                label=t("合成模式"),
+            ),
+            gr.update(value=t("*选择使用预设说话人或Zero-shot语音克隆*")),
+            gr.update(value=_build_preset_header()),
+            gr.update(value=t("↻ 刷新")),
+            gr.update(value=t("可用说话人：{count} 个", count=len(speakers))),
+            gr.update(value=_build_zero_shot_header()),
+            gr.update(label=t("预设参考音频"), choices=sample_names),
+            gr.update(value=t("*选择一个预设的参考音频，或者上传自己的音频文件*")),
+            gr.update(label=t("参考音频对应文本 (ASR内容)"), placeholder=t("请输入参考音频中说话人说的内容...")),
+            gr.update(value=t("*请准确输入参考音频中的文字内容，这将用于语音克隆*")),
+            gr.update(label=t("参考音频")),
+            gr.update(value=t("*你可以从上方选择预设音频，或者直接上传自己的音频文件*")),
+            gr.update(label=t("高级设置")),
+            gr.update(value=t("🎵 合成")),
+            gr.update(value=t("🧹 清空")),
+            gr.update(label=t("合成音频")),
+            gr.update(value=t("**后端地址**: `{backend}`", backend=BACKEND)),
+        ]
+
+    return {
+        "outputs": [
+            header_md,
+            llm_weight,
+            flow_weight,
+            load_pt_btn,
+            single_text,
+            synthesis_mode,
+            synthesis_tip,
+            preset_header,
+            refresh_btn,
+            speaker_info,
+            zero_shot_header,
+            reference_preset,
+            reference_tip,
+            prompt_text,
+            prompt_tip,
+            prompt_audio,
+            audio_tip,
+            advanced_settings,
+            synth_btn,
+            clear_btn,
+            audio_out,
+            backend_md,
+        ],
+        "apply": _apply_language,
+        "inputs": [synthesis_mode],
+    }
