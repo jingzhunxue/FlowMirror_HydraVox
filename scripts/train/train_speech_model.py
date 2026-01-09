@@ -585,6 +585,7 @@ class LlmPretrainDataCollator:
         bsz = len(features)
         batch["instruct_token"] = torch.zeros((bsz, 0), dtype=torch.long)
         batch["instruct_token_len"] = torch.zeros((bsz,), dtype=torch.int64)
+        batch["labels"] = torch.zeros((bsz,), dtype=torch.long)
 
         return batch
 
@@ -661,6 +662,7 @@ class FlowPretrainDataCollator:
             speech_tokens, speech_token_lens = _extract_speech_tokens_with_batch_fallback(features, onnx_session)
         batch["speech_token"] = pad_sequence(speech_tokens, batch_first=True, padding_value=0)
         batch["speech_token_len"] = torch.tensor(speech_token_lens, dtype=torch.int64)
+        batch["labels"] = torch.zeros((len(features),), dtype=torch.long)
 
         return batch
 
@@ -744,6 +746,7 @@ def _build_training_args(args: argparse.Namespace, cfg: Dict[str, Any], eval_dat
         dataloader_num_workers=int(args.dataloader_num_workers),
         remove_unused_columns=False,
         save_safetensors=False,
+        label_names=["labels"],
     )
 
 

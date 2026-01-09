@@ -503,6 +503,17 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "training.log_lines_line": {"zh": "日志行数: {count}", "en": "Log lines: {count}"},
     "training.log_omitted": {"zh": "... (省略了前{count}行日志) ...", "en": "... (omitted {count} earlier lines) ..."},
     "training.log_fetch_failed": {"zh": "获取日志失败: {error}", "en": "Failed to fetch logs: {error}"},
+    "training.eval_loss_ok": {
+        "zh": "✅ 发现有效 eval_loss 数据，应该会显示 eval loss 曲线",
+        "en": "✅ Found valid eval_loss; the eval loss curve should display",
+    },
+    "training.eval_loss_missing": {
+        "zh": "⚠️ 评估已执行但未发现有效的 eval_loss，原始数据: {sample}",
+        "en": "⚠️ Eval ran but no valid eval_loss found, sample: {sample}",
+    },
+    "training.eval_loss_waiting": {"zh": "⏳ 尚未执行评估，等待首次 eval...", "en": "⏳ Eval has not run yet; waiting for first eval..."},
+    "training.no_data": {"zh": "无数据", "en": "No Data"},
+    "training.no_eval_data": {"zh": "无评估数据", "en": "No Eval Data"},
     # train_speech_model.py
     "train.tn_load_failed": {"zh": "文本归一化库加载失败", "en": "Failed to load text normalization library"},
     "train.ckpt_format_invalid": {

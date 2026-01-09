@@ -616,6 +616,7 @@ def generate_training_plot(force_update: bool = False):
         learning_rate: List[float] = []
         epoch: List[float] = []
         grad_norm: List[float] = []
+        eval_seen = False
 
         # 优先解析 trainer_state.json
         state_file = os.path.join(training_state.output_dir, "trainer_state.json")
@@ -651,6 +652,7 @@ def generate_training_plot(force_update: bool = False):
                 # 处理评估日志（独立处理）
                 for entry in eval_logs:
                     eval_loss.append(float(entry.get("eval_loss", 0)))
+                eval_seen = len(eval_logs) > 0
                 
                 logger.info(f"🔍 从 trainer_state.json 解析: train_logs={len(train_logs)}, eval_logs={len(eval_logs)}")
                 if eval_logs:
@@ -670,6 +672,7 @@ def generate_training_plot(force_update: bool = False):
             learning_rate = m['learning_rate']
             epoch = m['epoch']
             grad_norm = m['grad_norm']
+            eval_seen = any("eval_" in line for line in training_state.log_lines)
 
         # 如果没有数据，返回空
         if not steps:
@@ -683,9 +686,11 @@ def generate_training_plot(force_update: bool = False):
             logger.info(f"📊 eval_loss 样本: {eval_loss[:5]}...")  # 显示前5个值
             logger.info(f"📊 eval_loss 数据类型: {[type(v) for v in eval_loss[:3]]}")
         if valid_eval_count > 0:
-            logger.info(f"✅ 发现有效 eval_loss 数据，应该会显示eval loss曲线")
+            logger.info(t("training.eval_loss_ok"))
+        elif eval_seen:
+            logger.warning(t("training.eval_loss_missing", sample=eval_loss[:10]))
         else:
-            logger.warning(f"⚠️ 没有有效的 eval_loss 数据！原始数据: {eval_loss[:10]}")
+            logger.info(t("training.eval_loss_waiting"))
 
         # 统一长度（简单对齐，缺失用 None 跳过绘图）
         import matplotlib.pyplot as plt
@@ -751,7 +756,7 @@ def generate_training_plot(force_update: bool = False):
         ax2.set_ylabel('Grad Norm')
         ax2.grid(True, alpha=0.3)
         if not grad_norm or not any(x > 0 for x in grad_norm):
-            ax2.text(0.5, 0.5, 'No Data', transform=ax2.transAxes, ha='center', va='center', alpha=0.5)
+            ax2.text(0.5, 0.5, t("training.no_data"), transform=ax2.transAxes, ha='center', va='center', alpha=0.5)
         else:
             format_x_axis(ax2, actual_steps_grad)
 
@@ -779,9 +784,9 @@ def generate_training_plot(force_update: bool = False):
                 format_x_axis(ax4, actual_steps_eval)
                 logger.info(f"🎨 绘制 eval_loss 曲线: {len(eval_values)} 个点，步数范围 {min(actual_steps_eval)}-{max(actual_steps_eval)}")
             else:
-                ax4.text(0.5, 0.5, 'No Eval Data', transform=ax4.transAxes, ha='center', va='center', alpha=0.5)
+                ax4.text(0.5, 0.5, t("training.no_eval_data"), transform=ax4.transAxes, ha='center', va='center', alpha=0.5)
         else:
-            ax4.text(0.5, 0.5, 'No Eval Data', transform=ax4.transAxes, ha='center', va='center', alpha=0.5)
+            ax4.text(0.5, 0.5, t("training.no_eval_data"), transform=ax4.transAxes, ha='center', va='center', alpha=0.5)
         ax4.set_title('Eval Loss', fontsize=12)
         ax4.set_xlabel('Steps')
         ax4.set_ylabel('Eval Loss')
