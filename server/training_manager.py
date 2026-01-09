@@ -6,6 +6,7 @@ import threading
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 import logging
+from .i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ class TrainingManager:
                 'status': 'running',
                 'pid': process.pid,
                 'log_file': str(log_file),
-                'message': '训练已启动'
+                'message': t("训练已启动")
             }
             
         except Exception as e:
@@ -71,7 +72,7 @@ class TrainingManager:
                 'training_id': None,
                 'status': 'failed',
                 'error': str(e),
-                'message': f'训练启动失败: {e}'
+                'message': t("训练启动失败: {error}", error=e)
             }
     
     def _build_training_command(self, config: Dict[str, Any]) -> str:
@@ -171,7 +172,7 @@ class TrainingManager:
             if training_id not in self.active_trainings:
                 return {
                     'success': False,
-                    'message': f'训练任务 {training_id} 不存在'
+                    'message': t("训练任务 {training_id} 不存在", training_id=training_id)
                 }
             
             training = self.active_trainings[training_id]
@@ -211,14 +212,14 @@ class TrainingManager:
                 
                 return {
                     'success': True,
-                    'message': f'训练任务 {training_id} 已停止'
+                    'message': t("训练任务 {training_id} 已停止", training_id=training_id)
                 }
                 
             except Exception as e:
                 logger.error(f"Failed to stop training {training_id}: {e}")
                 return {
                     'success': False,
-                    'message': f'停止训练失败: {e}'
+                    'message': t("停止训练失败: {error}", error=e)
                 }
     
     def get_training_status(self, training_id: str) -> Optional[Dict[str, Any]]:
@@ -290,7 +291,7 @@ class TrainingManager:
             if training_id not in self.active_trainings:
                 return {
                     'success': False,
-                    'message': f'训练任务 {training_id} 不存在'
+                    'message': t("训练任务 {training_id} 不存在", training_id=training_id)
                 }
             
             training = self.active_trainings[training_id]
@@ -314,7 +315,7 @@ class TrainingManager:
             
             return {
                 'success': True,
-                'message': f'训练任务 {training_id} 已删除'
+                'message': t("训练任务 {training_id} 已删除", training_id=training_id)
             }
 
 # 全局训练管理器实例

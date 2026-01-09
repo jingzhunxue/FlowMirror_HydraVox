@@ -7,6 +7,7 @@ import time
 import asyncio
 from .model_utils.infer_speech_model import load_audio_from_base64, audio_to_base64, load_audio_from_file, get_speakers
 from .training_manager import training_manager
+from .i18n import t
 
 logger = logging.getLogger("router")
 
@@ -123,17 +124,17 @@ async def zero_shot_tts(request: Request, task: ZeroShotRequest):
         tts_task_queue = request.app.state.tts_task_queue
         tts_result_dict = request.app.state.tts_result_dict
 
-        logger.info(f"零样本合成请求: {task.tts_text[:50]}...")
+        logger.info(t("零样本合成请求: {text}...", text=task.tts_text[:50]))
         
         # 验证输入
         if not task.tts_text or not task.tts_text.strip():
-            raise HTTPException(status_code=400, detail="合成文本不能为空")
+            raise HTTPException(status_code=400, detail=t("合成文本不能为空"))
         
         if not task.prompt_text or not task.prompt_text.strip():
-            raise HTTPException(status_code=400, detail="提示文本不能为空")
+            raise HTTPException(status_code=400, detail=t("提示文本不能为空"))
         
         if not task.prompt_audio_base64:
-            raise HTTPException(status_code=400, detail="提示音频不能为空")
+            raise HTTPException(status_code=400, detail=t("提示音频不能为空"))
         
         # 加载提示音频
         prompt_audio, prompt_sample_rate = load_audio_from_base64(task.prompt_audio_base64)
@@ -180,7 +181,7 @@ async def zero_shot_tts(request: Request, task: ZeroShotRequest):
 
                 return APIResponse(
                     success=True,
-                    message="TTS合成成功",
+                    message=t("TTS合成成功"),
                     data={
                         "audio_base64": audio_base64,
                         "sample_rate": result_sample_rate,
@@ -196,10 +197,10 @@ async def zero_shot_tts(request: Request, task: ZeroShotRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"零样本合成失败: {e}")
+        logger.error(t("零样本合成失败: {error}", error=e))
         return APIResponse(
             success=False,
-            message="零样本合成失败",
+            message=t("零样本合成失败"),
             error=str(e)
         )
 
@@ -218,14 +219,14 @@ async def text_to_speech(request: Request, task: TTSRequest):
         tts_task_queue = request.app.state.tts_task_queue
         tts_result_dict = request.app.state.tts_result_dict
 
-        logger.info(f"TTS合成请求: {task.text[:50]}...")
+        logger.info(t("TTS合成请求: {text}...", text=task.text[:50]))
         
         # 验证输入
         if not task.text or not task.text.strip():
-            raise HTTPException(status_code=400, detail="合成文本不能为空")
+            raise HTTPException(status_code=400, detail=t("合成文本不能为空"))
         
         if not task.speaker_id:
-            raise HTTPException(status_code=400, detail="说话人ID不能为空")
+            raise HTTPException(status_code=400, detail=t("说话人ID不能为空"))
         
         task_id = uuid.uuid4()
 
@@ -270,7 +271,7 @@ async def text_to_speech(request: Request, task: TTSRequest):
 
                 return APIResponse(
                     success=True,
-                    message="TTS合成成功",
+                    message=t("TTS合成成功"),
                     data={
                         "audio_base64": audio_base64,
                         "sample_rate": result_sample_rate,
@@ -296,10 +297,10 @@ async def text_to_speech(request: Request, task: TTSRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"TTS合成失败: {e}")
+        logger.error(t("TTS合成失败: {error}", error=e))
         return APIResponse(
             success=False,
-            message="TTS合成失败",
+            message=t("TTS合成失败"),
             error=str(e)
         )
 
@@ -312,7 +313,7 @@ async def load_pt(request: Request, task: LoadPTRequest):
         tts_task_queue = request.app.state.tts_task_queue
         tts_result_dict = request.app.state.tts_result_dict
     
-        logger.info(f"加载模型权重: {task.llm_pt} {task.flow_pt}")
+        logger.info(t("加载模型权重: {llm} {flow}", llm=task.llm_pt, flow=task.flow_pt))
 
         task_id = uuid.uuid4()
         tasks = {
@@ -327,15 +328,15 @@ async def load_pt(request: Request, task: LoadPTRequest):
             if task_id in tts_result_dict:
                 result_dict = tts_result_dict.pop(task_id)
                 if result_dict['status'] == "success":
-                    return APIResponse(success=True, message="加载模型权重成功", data=result_dict)
+                    return APIResponse(success=True, message=t("加载模型权重成功"), data=result_dict)
                 else:
-                    return APIResponse(success=False, message="加载模型权重失败", error=result_dict['error'])
+                    return APIResponse(success=False, message=t("加载模型权重失败"), error=result_dict['error'])
 
             await asyncio.sleep(0.05)
 
     except Exception as e:
-        logger.error(f"加载模型权重失败: {e}")
-        return APIResponse(success=False, message="加载模型权重失败", error=str(e))
+        logger.error(t("加载模型权重失败: {error}", error=e))
+        return APIResponse(success=False, message=t("加载模型权重失败"), error=str(e))
 
 @router.get("/speakers")
 async def get_speakers_api(request: Request):
@@ -345,8 +346,8 @@ async def get_speakers_api(request: Request):
     try:
         return get_speakers()
     except Exception as e:
-        logger.error(f"获取说话人列表失败: {e}")
-        return APIResponse(success=False, message="获取说话人列表失败", error=str(e))
+        logger.error(t("获取说话人列表失败: {error}", error=e))
+        return APIResponse(success=False, message=t("获取说话人列表失败"), error=str(e))
 
 # ================== 训练相关 API ==================
 
@@ -380,10 +381,10 @@ async def start_training_api(request: TrainingRequest):
             )
         
     except Exception as e:
-        logger.error(f"启动训练失败: {e}")
+        logger.error(t("启动训练失败: {error}", error=e))
         return APIResponse(
             success=False,
-            message="启动训练失败",
+            message=t("启动训练失败"),
             error=str(e)
         )
 
@@ -401,10 +402,10 @@ async def stop_training_api(training_id: str):
         )
         
     except Exception as e:
-        logger.error(f"停止训练失败: {e}")
+        logger.error(t("停止训练失败: {error}", error=e))
         return APIResponse(
             success=False,
-            message="停止训练失败",
+            message=t("停止训练失败"),
             error=str(e)
         )
 
@@ -419,20 +420,20 @@ async def get_training_status_api(training_id: str):
         if status is None:
             return APIResponse(
                 success=False,
-                message=f"训练任务 {training_id} 不存在"
+                message=t("训练任务 {training_id} 不存在", training_id=training_id)
             )
         
         return APIResponse(
             success=True,
-            message="获取训练状态成功",
+            message=t("获取训练状态成功"),
             data=status
         )
         
     except Exception as e:
-        logger.error(f"获取训练状态失败: {e}")
+        logger.error(t("获取训练状态失败: {error}", error=e))
         return APIResponse(
             success=False,
-            message="获取训练状态失败",
+            message=t("获取训练状态失败"),
             error=str(e)
         )
 
@@ -446,15 +447,15 @@ async def get_all_trainings_api():
         
         return APIResponse(
             success=True,
-            message="获取训练列表成功",
+            message=t("获取训练列表成功"),
             data={'trainings': trainings}
         )
         
     except Exception as e:
-        logger.error(f"获取训练列表失败: {e}")
+        logger.error(t("获取训练列表失败: {error}", error=e))
         return APIResponse(
             success=False,
-            message="获取训练列表失败",
+            message=t("获取训练列表失败"),
             error=str(e)
         )
 
@@ -472,9 +473,9 @@ async def delete_training_api(training_id: str):
         )
         
     except Exception as e:
-        logger.error(f"删除训练任务失败: {e}")
+        logger.error(t("删除训练任务失败: {error}", error=e))
         return APIResponse(
             success=False,
-            message="删除训练任务失败",
+            message=t("删除训练任务失败"),
             error=str(e)
         )

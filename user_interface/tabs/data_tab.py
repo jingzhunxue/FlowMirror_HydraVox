@@ -382,15 +382,15 @@ def run_stage2(input_dir: str,
                 log_lines = log_lines[-50:]
 
             # 解析总数
-            m_total = re.search(r"找到\s+(\d+)\s+个音频文件", line)
+            m_total = re.search(r"找到\s+(\d+)\s+个音频文件|Found\s+(\d+)\s+audio\s+files", line)
             if m_total:
                 try:
-                    total = int(m_total.group(1))
+                    total = int(m_total.group(1) or m_total.group(2))
                 except Exception:
                     total = total
 
             # 解析 tqdm 进度 "处理音频文件: ... 12/34 ..."
-            if "处理音频文件" in line:
+            if "处理音频文件" in line or "Processing audio files" in line:
                 m_prog = re.search(r"(\d+)\s*/\s*(\d+)", line)
                 if m_prog:
                     try:
@@ -548,25 +548,40 @@ def run_stage3(input_dir: str,
                 log_lines = log_lines[-200:]
 
             # 解析总数
-            m_total = re.search(r"找到\s+(\d+)\s+个\s+\.wav\s+文件和\s+(\d+)\s+个\s+\.mp3\s+文件", line)
+            m_total = re.search(
+                r"找到\s+(\d+)\s+个\s+\.wav\s+文件和\s+(\d+)\s+个\s+\.mp3\s+文件|"
+                r"Found\s+(\d+)\s+\.wav\s+files\s+and\s+(\d+)\s+\.mp3\s+files",
+                line,
+            )
             if m_total:
                 try:
-                    total_files = int(m_total.group(1)) + int(m_total.group(2))
+                    wav_count = int(m_total.group(1) or m_total.group(3))
+                    mp3_count = int(m_total.group(2) or m_total.group(4))
+                    total_files = wav_count + mp3_count
                 except Exception:
                     pass
 
             # 解析多进程总体信息
-            m_multi = re.search(r"启动多进程处理:\s*(\d+)\s*个工作进程处理\s*(\d+)\s*个文件", line)
+            m_multi = re.search(
+                r"启动多进程处理:\s*(\d+)\s*个工作进程处理\s*(\d+)\s*个文件|"
+                r"Starting multi-process:\s*(\d+)\s*workers?\s*for\s*(\d+)\s*files",
+                line,
+            )
             if m_multi:
                 try:
-                    num_workers_detected = int(m_multi.group(1))
-                    total_files = int(m_multi.group(2))
+                    num_workers_detected = int(m_multi.group(1) or m_multi.group(3))
+                    total_files = int(m_multi.group(2) or m_multi.group(4))
                 except Exception:
                     pass
-            m_chunk = re.search(r"启动工作进程\s*(\d+)，分配\s*(\d+)\s*个文件", line)
+            m_chunk = re.search(
+                r"启动工作进程\s*(\d+)，分配\s*(\d+)\s*个文件|"
+                r"Starting worker\s*(\d+),\s*assigned\s*(\d+)\s*files",
+                line,
+            )
             if m_chunk:
                 try:
-                    wid = int(m_chunk.group(1)); size = int(m_chunk.group(2))
+                    wid = int(m_chunk.group(1) or m_chunk.group(3))
+                    size = int(m_chunk.group(2) or m_chunk.group(4))
                     worker_chunks[wid] = size
                 except Exception:
                     pass

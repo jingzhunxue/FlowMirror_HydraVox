@@ -21,8 +21,8 @@ try:
     from safetensors import safe_open
     from safetensors.torch import load_file as load_safetensors
 except ImportError:
-    print("错误: 请先安装 safetensors 库")
-    print("运行: pip install safetensors")
+    print(_t("错误: 请先安装 safetensors 库"))
+    print(_t("运行: pip install safetensors"))
     sys.exit(1)
 
 # 设置日志
@@ -34,6 +34,73 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+_TRANSLATIONS = {
+    "错误: 请先安装 safetensors 库": {"en": "Error: please install safetensors first"},
+    "运行: pip install safetensors": {"en": "Run: pip install safetensors"},
+    "正在加载 safetensors 文件: {path}": {"en": "Loading safetensors file: {path}"},
+    "成功加载 {count} 个张量": {"en": "Loaded {count} tensors"},
+    "总参数量: {params}": {"en": "Total parameters: {params}"},
+    "加载 safetensors 文件失败: {error}": {"en": "Failed to load safetensors file: {error}"},
+    "正在保存 PyTorch 文件: {path}": {"en": "Saving PyTorch file: {path}"},
+    "保存成功! 文件大小: {size:.2f} MB": {"en": "Saved successfully! File size: {size:.2f} MB"},
+    "保存 PyTorch 文件失败: {error}": {"en": "Failed to save PyTorch file: {error}"},
+    "输入文件不存在: {path}": {"en": "Input file not found: {path}"},
+    "输入文件不是 .safetensors 格式: {path}": {"en": "Input file is not .safetensors: {path}"},
+    "保留了原始元数据: {count} 个条目": {"en": "Preserved original metadata: {count} entries"},
+    "无法读取原始元数据: {error}": {"en": "Failed to read original metadata: {error}"},
+    "✅ 转换完成: {src} -> {dst}": {"en": "✅ Conversion completed: {src} -> {dst}"},
+    "❌ 转换失败: {src} -> {dst}, 错误: {error}": {
+        "en": "❌ Conversion failed: {src} -> {dst}, error: {error}"
+    },
+    "输入目录不存在: {path}": {"en": "Input directory not found: {path}"},
+    "在目录 {path} 中未找到 .safetensors 文件": {
+        "en": "No .safetensors files found in directory {path}"
+    },
+    "找到 {count} 个 .safetensors 文件": {"en": "Found {count} .safetensors files"},
+    "处理文件 {path} 时发生错误: {error}": {"en": "Error processing file {path}: {error}"},
+    "批量转换完成! 成功: {success}, 失败: {failed}": {
+        "en": "Batch conversion completed! Success: {success}, Failed: {failed}"
+    },
+    "将 SafeTensors 格式转换为 PyTorch .pt 格式": {"en": "Convert SafeTensors to PyTorch .pt"},
+    "输入的 .safetensors 文件路径": {"en": "Input .safetensors file path"},
+    "输入目录路径 (批量转换)": {"en": "Input directory path (batch conversion)"},
+    "输出的 .pt 文件路径 (单文件转换时使用，不指定则自动生成)": {
+        "en": "Output .pt file path (single file; auto if omitted)"
+    },
+    "输出目录路径 (批量转换时使用)": {"en": "Output directory path (batch conversion)"},
+    "不保留原始元数据": {"en": "Do not preserve original metadata"},
+    "不添加转换信息到输出文件": {"en": "Do not add conversion info to output file"},
+    "显示详细日志": {"en": "Show verbose logs"},
+    "使用示例:": {"en": "Examples:"},
+    "  # 单文件转换": {"en": "  # Single file conversion"},
+    "  # 批量转换目录": {"en": "  # Batch convert a directory"},
+    "  # 自动输出文件名": {"en": "  # Auto-generate output filename"},
+    "开始单文件转换...": {"en": "Starting single-file conversion..."},
+    "🎉 转换成功完成!": {"en": "🎉 Conversion completed successfully!"},
+    "💥 转换失败!": {"en": "💥 Conversion failed!"},
+    "批量转换需要指定输出目录 (--output-dir)": {
+        "en": "Batch conversion requires --output-dir"
+    },
+    "开始批量转换...": {"en": "Starting batch conversion..."},
+    "🎉 批量转换完成!": {"en": "🎉 Batch conversion completed!"},
+    "用户中断操作": {"en": "Interrupted by user"},
+    "程序执行出错: {error}": {"en": "Program error: {error}"},
+}
+
+
+def _t(text: str, **kwargs: Any) -> str:
+    lang = os.getenv("HYDRAVOX_LANG", os.getenv("HYDRAVOX_UI_LANG", "zh")).lower()
+    if lang not in ("zh", "en"):
+        lang = "zh"
+    entry = _TRANSLATIONS.get(text)
+    result = entry.get(lang, text) if entry else text
+    if kwargs:
+        try:
+            return result.format(**kwargs)
+        except Exception:
+            return result
+    return result
 
 
 def load_safetensors_file(safetensors_path: str) -> Dict[str, torch.Tensor]:
@@ -47,12 +114,12 @@ def load_safetensors_file(safetensors_path: str) -> Dict[str, torch.Tensor]:
         包含所有张量的字典
     """
     try:
-        logger.info(f"正在加载 safetensors 文件: {safetensors_path}")
+        logger.info(_t("正在加载 safetensors 文件: {path}", path=safetensors_path))
         
         # 使用safetensors加载
         state_dict = load_safetensors(safetensors_path)
         
-        logger.info(f"成功加载 {len(state_dict)} 个张量")
+        logger.info(_t("成功加载 {count} 个张量", count=len(state_dict)))
         
         # 打印张量信息
         total_params = 0
@@ -61,11 +128,11 @@ def load_safetensors_file(safetensors_path: str) -> Dict[str, torch.Tensor]:
             total_params += params
             logger.debug(f"  {key}: {tensor.shape} ({tensor.dtype}) - {params:,} 参数")
         
-        logger.info(f"总参数量: {total_params:,}")
+        logger.info(_t("总参数量: {params}", params=f"{total_params:,}"))
         return state_dict
         
     except Exception as e:
-        logger.error(f"加载 safetensors 文件失败: {e}")
+        logger.error(_t("加载 safetensors 文件失败: {error}", error=e))
         raise
 
 
@@ -80,7 +147,7 @@ def save_pytorch_file(state_dict: Dict[str, torch.Tensor], output_path: str,
         metadata: 可选的元数据信息
     """
     try:
-        logger.info(f"正在保存 PyTorch 文件: {output_path}")
+        logger.info(_t("正在保存 PyTorch 文件: {path}", path=output_path))
         
         # 准备保存的数据
         save_data = state_dict.copy()
@@ -99,10 +166,10 @@ def save_pytorch_file(state_dict: Dict[str, torch.Tensor], output_path: str,
         
         # 验证保存的文件
         file_size = os.path.getsize(output_path) / (1024 * 1024)  # MB
-        logger.info(f"保存成功! 文件大小: {file_size:.2f} MB")
+        logger.info(_t("保存成功! 文件大小: {size:.2f} MB", size=file_size))
         
     except Exception as e:
-        logger.error(f"保存 PyTorch 文件失败: {e}")
+        logger.error(_t("保存 PyTorch 文件失败: {error}", error=e))
         raise
 
 
@@ -124,11 +191,11 @@ def convert_single_file(input_path: str, output_path: str,
     try:
         # 检查输入文件
         if not os.path.exists(input_path):
-            logger.error(f"输入文件不存在: {input_path}")
+            logger.error(_t("输入文件不存在: {path}", path=input_path))
             return False
         
         if not input_path.lower().endswith('.safetensors'):
-            logger.warning(f"输入文件不是 .safetensors 格式: {input_path}")
+            logger.warning(_t("输入文件不是 .safetensors 格式: {path}", path=input_path))
         
         # 加载safetensors文件
         state_dict = load_safetensors_file(input_path)
@@ -150,18 +217,18 @@ def convert_single_file(input_path: str, output_path: str,
                 with safe_open(input_path, framework="pt") as f:
                     if hasattr(f, 'metadata') and f.metadata():
                         metadata['_original_metadata'] = f.metadata()
-                        logger.info(f"保留了原始元数据: {len(f.metadata())} 个条目")
+                        logger.info(_t("保留了原始元数据: {count} 个条目", count=len(f.metadata())))
             except Exception as e:
-                logger.warning(f"无法读取原始元数据: {e}")
+                logger.warning(_t("无法读取原始元数据: {error}", error=e))
         
         # 保存为.pt格式
         save_pytorch_file(state_dict, output_path, metadata if metadata else None)
         
-        logger.info(f"✅ 转换完成: {input_path} -> {output_path}")
+        logger.info(_t("✅ 转换完成: {src} -> {dst}", src=input_path, dst=output_path))
         return True
         
     except Exception as e:
-        logger.error(f"❌ 转换失败: {input_path} -> {output_path}, 错误: {e}")
+        logger.error(_t("❌ 转换失败: {src} -> {dst}, 错误: {error}", src=input_path, dst=output_path, error=e))
         return False
 
 
@@ -181,17 +248,17 @@ def convert_directory(input_dir: str, output_dir: str,
     output_path = Path(output_dir)
     
     if not input_path.exists():
-        logger.error(f"输入目录不存在: {input_dir}")
+        logger.error(_t("输入目录不存在: {path}", path=input_dir))
         return
     
     # 查找所有safetensors文件
     safetensors_files = list(input_path.rglob("*.safetensors"))
     
     if not safetensors_files:
-        logger.warning(f"在目录 {input_dir} 中未找到 .safetensors 文件")
+        logger.warning(_t("在目录 {path} 中未找到 .safetensors 文件", path=input_dir))
         return
     
-    logger.info(f"找到 {len(safetensors_files)} 个 .safetensors 文件")
+    logger.info(_t("找到 {count} 个 .safetensors 文件", count=len(safetensors_files)))
     
     # 确保输出目录存在
     output_path.mkdir(parents=True, exist_ok=True)
@@ -216,27 +283,30 @@ def convert_directory(input_dir: str, output_dir: str,
                 failed_count += 1
                 
         except Exception as e:
-            logger.error(f"处理文件 {safetensors_file} 时发生错误: {e}")
+            logger.error(_t("处理文件 {path} 时发生错误: {error}", path=safetensors_file, error=e))
             failed_count += 1
     
-    logger.info(f"批量转换完成! 成功: {success_count}, 失败: {failed_count}")
+    logger.info(_t("批量转换完成! 成功: {success}, 失败: {failed}", success=success_count, failed=failed_count))
 
 
 def main():
+    epilog = "\n".join(
+        [
+            _t("使用示例:"),
+            _t("  # 单文件转换"),
+            "  python convert_safetensor_to_pt.py -i model.safetensors -o model.pt",
+            "",
+            _t("  # 批量转换目录"),
+            "  python convert_safetensor_to_pt.py -d ./safetensors_models -D ./pt_models",
+            "",
+            _t("  # 自动输出文件名"),
+            "  python convert_safetensor_to_pt.py -i model.safetensors",
+        ]
+    )
     parser = argparse.ArgumentParser(
-        description="将 SafeTensors 格式转换为 PyTorch .pt 格式",
+        description=_t("将 SafeTensors 格式转换为 PyTorch .pt 格式"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-使用示例:
-  # 单文件转换
-  python convert_safetensor_to_pt.py -i model.safetensors -o model.pt
-  
-  # 批量转换目录
-  python convert_safetensor_to_pt.py -d ./safetensors_models -D ./pt_models
-  
-  # 自动输出文件名
-  python convert_safetensor_to_pt.py -i model.safetensors
-        """
+        epilog=epilog,
     )
     
     # 输入选项
@@ -244,41 +314,41 @@ def main():
     input_group.add_argument(
         '-i', '--input',
         type=str,
-        help='输入的 .safetensors 文件路径'
+        help=_t("输入的 .safetensors 文件路径")
     )
     input_group.add_argument(
         '-d', '--input-dir',
         type=str,
-        help='输入目录路径 (批量转换)'
+        help=_t("输入目录路径 (批量转换)")
     )
     
     # 输出选项
     parser.add_argument(
         '-o', '--output',
         type=str,
-        help='输出的 .pt 文件路径 (单文件转换时使用，不指定则自动生成)'
+        help=_t("输出的 .pt 文件路径 (单文件转换时使用，不指定则自动生成)")
     )
     parser.add_argument(
         '-D', '--output-dir',
         type=str,
-        help='输出目录路径 (批量转换时使用)'
+        help=_t("输出目录路径 (批量转换时使用)")
     )
     
     # 其他选项
     parser.add_argument(
         '--no-metadata',
         action='store_true',
-        help='不保留原始元数据'
+        help=_t("不保留原始元数据")
     )
     parser.add_argument(
         '--no-conversion-info',
         action='store_true',
-        help='不添加转换信息到输出文件'
+        help=_t("不添加转换信息到输出文件")
     )
     parser.add_argument(
         '--verbose', '-v',
         action='store_true',
-        help='显示详细日志'
+        help=_t("显示详细日志")
     )
     
     args = parser.parse_args()
@@ -297,7 +367,7 @@ def main():
                 input_path = Path(args.input)
                 output_path = str(input_path.with_suffix('.pt'))
             
-            logger.info("开始单文件转换...")
+            logger.info(_t("开始单文件转换..."))
             success = convert_single_file(
                 args.input, 
                 output_path,
@@ -306,32 +376,32 @@ def main():
             )
             
             if success:
-                logger.info("🎉 转换成功完成!")
+                logger.info(_t("🎉 转换成功完成!"))
                 sys.exit(0)
             else:
-                logger.error("💥 转换失败!")
+                logger.error(_t("💥 转换失败!"))
                 sys.exit(1)
                 
         elif args.input_dir:
             # 批量转换
             if not args.output_dir:
-                logger.error("批量转换需要指定输出目录 (--output-dir)")
+                logger.error(_t("批量转换需要指定输出目录 (--output-dir)"))
                 sys.exit(1)
             
-            logger.info("开始批量转换...")
+            logger.info(_t("开始批量转换..."))
             convert_directory(
                 args.input_dir, 
                 args.output_dir,
                 preserve_metadata=not args.no_metadata,
                 add_conversion_info=not args.no_conversion_info
             )
-            logger.info("🎉 批量转换完成!")
+            logger.info(_t("🎉 批量转换完成!"))
             
     except KeyboardInterrupt:
-        logger.info("用户中断操作")
+        logger.info(_t("用户中断操作"))
         sys.exit(1)
     except Exception as e:
-        logger.error(f"程序执行出错: {e}")
+        logger.error(_t("程序执行出错: {error}", error=e))
         sys.exit(1)
 
 

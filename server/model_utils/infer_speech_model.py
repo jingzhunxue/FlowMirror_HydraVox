@@ -12,14 +12,15 @@ import torchaudio
 import base64
 import io
 from hyperpyyaml import load_hyperpyyaml
+from ..i18n import t
 
 # 导入项目模块
 try:
     from .cosyvoice.cli.frontend import CosyVoiceFrontEnd
 except ImportError as e:
-    print(f"导入错误: {e}")
-    print(f"当前工作目录: {os.getcwd()}")
-    print(f"Python路径: {sys.path}")
+    print(t("导入错误: {error}", error=e))
+    print(t("当前工作目录: {cwd}", cwd=os.getcwd()))
+    print(t("Python路径: {path}", path=sys.path))
     sys.exit(1)
 
 # 配置日志
@@ -49,10 +50,10 @@ class ModelManager:
     def load_models(self, args):
         """加载模型"""
         if self.is_loaded:
-            logger.info("模型已加载，跳过重复加载")
+            logger.info(t("模型已加载，跳过重复加载"))
             return
             
-        logger.info("开始加载模型...")
+        logger.info(t("开始加载模型..."))
         
         # 加载配置
         with open(os.path.join(args.model_dir, 'hydravox.yaml'), 'r') as f:
@@ -66,26 +67,26 @@ class ModelManager:
         hift = self.configs['hift']
         
         # 加载检查点
-        logger.info("加载LLM检查点...")
+        logger.info(t("加载LLM检查点..."))
         llm_pt = torch.load(os.path.join(args.model_dir, 'llm.pt'), map_location='cpu')
         
-        logger.info("加载Flow检查点...")
+        logger.info(t("加载Flow检查点..."))
         flow_pt = torch.load(os.path.join(args.model_dir, 'flow.pt'), map_location='cpu')
         
-        logger.info("加载Hift检查点...")
+        logger.info(t("加载Hift检查点..."))
         hift_pt = torch.load(os.path.join(args.model_dir, 'hift.pt'), map_location='cpu')
         
             # 清理检查点中的epoch和step信息
         for key in ['epoch', 'step', '_original_metadata', '_conversion_info']:
             if key in llm_pt:
                 llm_pt.pop(key)
-                logger.info(f"从LLM检查点中移除 '{key}' 键")
+                logger.info(t("从LLM检查点中移除 '{key}' 键", key=key))
             if key in flow_pt:
                 flow_pt.pop(key)
-                logger.info(f"从Flow检查点中移除 '{key}' 键")
+                logger.info(t("从Flow检查点中移除 '{key}' 键", key=key))
             if key in hift_pt:
                 hift_pt.pop(key)
-                logger.info(f"从Hift检查点中移除 '{key}' 键")
+                logger.info(t("从Hift检查点中移除 '{key}' 键", key=key))
 
         # 加载状态字典
         llm.load_state_dict(llm_pt)
@@ -96,7 +97,7 @@ class ModelManager:
         self.device = "cuda" if torch.cuda.is_available() and not args.cpu else "cpu"
         
         if self.device == "cuda":
-            logger.info("将模型移动到GPU...")
+            logger.info(t("将模型移动到GPU..."))
             if args.bf16:
                 llm.eval().cuda().to(torch.bfloat16)
                 flow.eval().cuda().half()
@@ -105,7 +106,7 @@ class ModelManager:
                 flow.bf16 = False
                 llm.fp16 = False
                 flow.fp16 = False
-                logger.info("使用BF16精度")
+                logger.info(t("使用BF16精度"))
             else:
                 llm.eval().cuda().to(torch.float16)
                 flow.eval().cuda().to(torch.float16)
@@ -114,10 +115,10 @@ class ModelManager:
                 flow.fp16 = True
                 llm.bf16 = False
                 flow.bf16 = False
-                logger.info("使用FP16精度")
+                logger.info(t("使用FP16精度"))
             
         else:
-            logger.info("使用CPU进行推理...")
+            logger.info(t("使用CPU进行推理..."))
             llm.eval()
             flow.eval()
             hift.eval()
@@ -139,11 +140,11 @@ class ModelManager:
             self.zero_shot_speakers = None
 
         self.is_loaded = True
-        logger.info("模型加载完成")
+        logger.info(t("模型加载完成"))
         
     def setup_frontend(self, args):
         """设置前端处理器"""
-        logger.info("初始化前端处理器...")
+        logger.info(t("初始化前端处理器..."))
         
         campplus_path = os.path.join(args.model_dir, 'campplus.onnx')
         speech_tokenizer_path = os.path.join(args.model_dir, 'speech_tokenizer_v3.onnx')
@@ -152,7 +153,7 @@ class ModelManager:
         # 验证前端组件文件存在
         for path, name in [(campplus_path, 'campplus'), (speech_tokenizer_path, 'speech_tokenizer')]:
             if not os.path.exists(path):
-                raise ValueError(f"前端组件文件不存在: {path} ({name})")
+                raise ValueError(t("前端组件文件不存在: {path} ({name})", path=path, name=name))
         
         self.frontend = CosyVoiceFrontEnd(
             self.configs['get_tokenizer'],
@@ -163,7 +164,7 @@ class ModelManager:
             self.configs['allowed_special']
         )
         
-        logger.info("前端处理器初始化完成")
+        logger.info(t("前端处理器初始化完成"))
     
     def load_pt(self, llm_pt, flow_pt):
         """加载模型权重"""
@@ -176,10 +177,10 @@ class ModelManager:
             self.models['flow'].eval().cuda().half()
             self.models['flow'].fp16 = True
             self.models['flow'].bf16 = False
-            logger.info("模型权重加载完成")
-            return {"status": "success", "message": "模型权重加载完成"}
+            logger.info(t("模型权重加载完成"))
+            return {"status": "success", "message": t("模型权重加载完成")}
         except Exception as e:
-            logger.error(f"模型权重加载失败: {e}")
+            logger.error(t("模型权重加载失败: {error}", error=e))
             return {"status": "error", "message": str(e)}
 
     def get_available_speakers(self):
@@ -240,7 +241,7 @@ class ModelManager:
                         "description": spk_info.get("description", "")
                     })
                 except Exception as e:
-                    logger.warning(f"获取speaker {spk_id} 详细信息失败: {e}")
+                    logger.warning(t("获取speaker {spk_id} 详细信息失败: {error}", spk_id=spk_id, error=e))
                     speaker_details.append({
                         "speaker_id": str(spk_id),
                         "name": f"Speaker_{spk_id}",
@@ -252,7 +253,7 @@ class ModelManager:
             return speaker_details
             
         except Exception as e:
-            logger.error(f"获取speaker列表失败: {e}")
+            logger.error(t("获取speaker列表失败: {error}", error=e))
             return []
 
 # ============================================================================
@@ -372,9 +373,9 @@ def inference_tts_with_segmentation(model_manager, text: str, spk_id: str, max_l
     segments = split_text_by_punctuation(text, max_length, min_length)
     segments = merge_short_segments(segments, min_length)
     
-    logger.info(f"文本分割为 {len(segments)} 个片段:")
+    logger.info(t("文本分割为 {count} 个片段:", count=len(segments)))
     for i, segment in enumerate(segments):
-        logger.info(f"  片段 {i+1}: {segment}")
+        logger.info(t("片段 {index}: {segment}", index=i + 1, segment=segment))
     
     if len(segments) == 1:
         # 只有一个片段，直接推理
@@ -386,18 +387,18 @@ def inference_tts_with_segmentation(model_manager, text: str, spk_id: str, max_l
     prev_segment_audio = None
     
     for i, segment in enumerate(segments):
-        logger.info(f"正在合成片段 {i+1}/{len(segments)}: {segment}")
+        logger.info(t("正在合成片段 {index}/{total}: {segment}", index=i + 1, total=len(segments), segment=segment))
         try:
             if i == 0 or not last_prompt:
                 # 第一段或禁用last_prompt时：使用speaker做正常TTS
-                logger.info(f"第{i+1}段使用TTS合成")
+                logger.info(t("第{index}段使用TTS合成", index=i + 1))
                 segment_audio = inference_tts(model_manager, segment, spk_id, speed=speed)
                 prev_segment_text = segment
                 prev_segment_audio = segment_audio
                 audio_segments.append(segment_audio)
             else:
                 # 后续段且启用last_prompt：使用上一个片段作为提示进行zero shot合成
-                logger.info(f"第{i+1}段使用zero shot合成，以第{i}段为提示")
+                logger.info(t("第{index}段使用zero shot合成，以第{prev_index}段为提示", index=i + 1, prev_index=i))
                 segment_audio = inference_zero_shot(
                     model_manager=model_manager,
                     tts_text=segment,
@@ -412,8 +413,8 @@ def inference_tts_with_segmentation(model_manager, text: str, spk_id: str, max_l
                 audio_segments.append(segment_audio)
                 
         except Exception as e:
-            logger.error(f"片段 {i+1} 合成失败: {e}")
-            raise ValueError(f"片段 {i+1} 合成失败: {e}")
+            logger.error(t("片段 {index} 合成失败: {error}", index=i + 1, error=e))
+            raise ValueError(t("片段 {index} 合成失败: {error}", index=i + 1, error=e))
     
     # 合并音频片段，在片段间添加随机停顿
     if audio_segments:
@@ -435,14 +436,20 @@ def inference_tts_with_segmentation(model_manager, text: str, spk_id: str, max_l
                 silence = torch.zeros(silence_shape, dtype=audio_segment.dtype, device=audio_segment.device)
                 
                 final_audio_parts.append(silence)
-                logger.info(f"片段 {i+1} 后添加 {pause_duration_ms:.1f}ms 停顿")
+                logger.info(t("片段 {index} 后添加 {pause_ms:.1f}ms 停顿", index=i + 1, pause_ms=pause_duration_ms))
         
         # 使用torch.cat沿着时间维度合并
         merged_audio = torch.cat(final_audio_parts, dim=-1)
-        logger.info(f"音频合并完成，总长度: {merged_audio.shape[-1]} samples ({merged_audio.shape[-1]/sample_rate:.2f}s)")
+        logger.info(
+            t(
+                "音频合并完成，总长度: {samples} samples ({seconds:.2f}s)",
+                samples=merged_audio.shape[-1],
+                seconds=merged_audio.shape[-1] / sample_rate,
+            )
+        )
         return merged_audio
     else:
-        raise ValueError("没有成功合成的音频片段")
+        raise ValueError(t("没有成功合成的音频片段"))
 
 
 # ============================================================================
@@ -466,17 +473,17 @@ def load_audio_from_base64(audio_base64: str, target_sr: int = 16000):
             resampler = torchaudio.transforms.Resample(sample_rate, target_sr)
             audio_data = resampler(audio_data)
             sample_rate = target_sr
-            logger.info(f"音频重采样: {sample_rate}Hz -> {target_sr}Hz")
+            logger.info(t("音频重采样: {src}Hz -> {dst}Hz", src=sample_rate, dst=target_sr))
         
         return audio_data, sample_rate
         
     except Exception as e:
-        raise ValueError(f"加载base64音频失败: {e}")
+        raise ValueError(t("加载base64音频失败: {error}", error=e))
 
 def load_audio_from_file(audio_path: str, target_sr: int = 16000):
     """从文件加载音频"""
     if not os.path.exists(audio_path):
-        raise ValueError(f"音频文件不存在: {audio_path}")
+        raise ValueError(t("音频文件不存在: {path}", path=audio_path))
     
     try:
         audio_data, sample_rate = torchaudio.load(audio_path)
@@ -487,12 +494,12 @@ def load_audio_from_file(audio_path: str, target_sr: int = 16000):
             resampler = torchaudio.transforms.Resample(sample_rate, target_sr)
             audio_data = resampler(audio_data)
             sample_rate = target_sr
-            logger.info(f"音频重采样: {sample_rate}Hz -> {target_sr}Hz")
+            logger.info(t("音频重采样: {src}Hz -> {dst}Hz", src=sample_rate, dst=target_sr))
         
         return audio_data, sample_rate
         
     except Exception as e:
-        raise ValueError(f"加载音频文件失败 {audio_path}: {e}")
+        raise ValueError(t("加载音频文件失败 {path}: {error}", path=audio_path, error=e))
 
 def audio_to_base64(audio_tensor: torch.Tensor, sample_rate: int, format: str = "wav") -> str:
     """将音频张量转换为base64字符串"""
@@ -511,12 +518,12 @@ def audio_to_base64(audio_tensor: torch.Tensor, sample_rate: int, format: str = 
         return audio_base64
         
     except Exception as e:
-        raise ValueError(f"音频转base64失败: {e}")
+        raise ValueError(t("音频转base64失败: {error}", error=e))
 
 def inference_zero_shot(model_manager, tts_text: str, prompt_text: str, prompt_audio: torch.Tensor, prompt_sample_rate: int, speed: float = 1.0) -> torch.Tensor:
     """执行零样本推理"""
     if not model_manager.is_loaded:
-        raise ValueError("模型未加载")
+        raise ValueError(t("模型未加载"))
     
     try:
         # 预处理文本
@@ -525,8 +532,8 @@ def inference_zero_shot(model_manager, tts_text: str, prompt_text: str, prompt_a
         
         prompt_audio = (prompt_audio, prompt_sample_rate)
 
-        logger.info(f"提示文本: {processed_prompt_text}")
-        logger.info(f"合成文本: {processed_tts_text}")
+        logger.info(t("提示文本: {text}", text=processed_prompt_text))
+        logger.info(t("合成文本: {text}", text=processed_tts_text))
         
         # 前端处理
         model_input = model_manager.frontend.frontend_zero_shot(
@@ -555,7 +562,7 @@ def inference_zero_shot(model_manager, tts_text: str, prompt_text: str, prompt_a
             
         llm_time = time.time() - start_time
         tps = len(output_tokens) / llm_time if llm_time > 0 else 0
-        logger.info(f"LLM推理完成，TPS: {tps:.2f}")
+        logger.info(t("LLM推理完成，TPS: {tps:.2f}", tps=tps))
         
         # Flow推理
         token_tensor = torch.tensor(output_tokens).unsqueeze(0)
@@ -587,24 +594,31 @@ def inference_zero_shot(model_manager, tts_text: str, prompt_text: str, prompt_a
         total_time = time.time() - start_time
         audio_length = tts_speech.shape[-1] / 24000
         torch.cuda.empty_cache()
-        logger.info(f"推理完成，总时间: {total_time:.2f}s, TPS: {tps:.2f}, RTF: {total_time / audio_length:.2f}")
+        logger.info(
+            t(
+                "推理完成，总时间: {total:.2f}s, TPS: {tps:.2f}, RTF: {rtf:.2f}",
+                total=total_time,
+                tps=tps,
+                rtf=total_time / audio_length,
+            )
+        )
         
         return tts_speech.cpu()
         
     except Exception as e:
-        logger.error(f"零样本推理失败: {e}")
-        raise ValueError(f"零样本推理失败: {e}")
+        logger.error(t("零样本推理失败: {error}", error=e))
+        raise ValueError(t("零样本推理失败: {error}", error=e))
 
 def inference_tts(model_manager, text: str, spk_id: str, speed: float = 1.0) -> torch.Tensor:
     """执行零样本推理"""
     if not model_manager.is_loaded:
-        raise ValueError("模型未加载")
+        raise ValueError(t("模型未加载"))
     
     try:
         # 预处理文本
         processed_tts_text = model_manager.frontend.text_normalize(text, split=True, text_frontend=True)
         
-        logger.info(f"合成文本: {processed_tts_text}")
+        logger.info(t("合成文本: {text}", text=processed_tts_text))
         
         # 前端处理
         model_input = model_manager.frontend.frontend_sft(
@@ -630,7 +644,7 @@ def inference_tts(model_manager, text: str, spk_id: str, speed: float = 1.0) -> 
             
         llm_time = time.time() - start_time
         tps = len(output_tokens) / llm_time if llm_time > 0 else 0
-        logger.info(f"LLM推理完成，TPS: {tps:.2f}")
+        logger.info(t("LLM推理完成，TPS: {tps:.2f}", tps=tps))
         
         # Flow推理
         token_tensor = torch.tensor(output_tokens).unsqueeze(0)
@@ -657,15 +671,22 @@ def inference_tts(model_manager, text: str, spk_id: str, speed: float = 1.0) -> 
         total_time = time.time() - start_time
         torch.cuda.empty_cache()
         audio_length = tts_speech.shape[-1] / 24000
-        logger.info(f"推理完成，总时间: {total_time:.2f}s, TPS: {tps:.2f}, RTF: {total_time / audio_length:.2f}")
+        logger.info(
+            t(
+                "推理完成，总时间: {total:.2f}s, TPS: {tps:.2f}, RTF: {rtf:.2f}",
+                total=total_time,
+                tps=tps,
+                rtf=total_time / audio_length,
+            )
+        )
 
         return tts_speech.cpu()
         
     except Exception as e:
         import traceback
         traceback.print_exc()
-        logger.error(f"TTS推理失败: {e}")
-        raise ValueError(f"TTS推理失败: {e}")
+        logger.error(t("TTS推理失败: {error}", error=e))
+        raise ValueError(t("TTS推理失败: {error}", error=e))
 
 def zero_shot_tts(model_manager, tts_text, prompt_text, prompt_audio, speed: float = 1.0):
     """
@@ -679,19 +700,19 @@ def zero_shot_tts(model_manager, tts_text, prompt_text, prompt_audio, speed: flo
     """
     try:
         if not model_manager.is_loaded:
-            raise Exception("模型未加载")
+            raise Exception(t("模型未加载"))
         
-        logger.info(f"零样本合成请求: {tts_text[:50]}...")
+        logger.info(t("零样本合成请求: {text}...", text=tts_text[:50]))
         
         # 验证输入
         if not tts_text or not tts_text.strip():
-            raise Exception("合成文本不能为空")
+            raise Exception(t("合成文本不能为空"))
         
         if not prompt_text or not prompt_text.strip():
-            raise Exception("提示文本不能为空")
+            raise Exception(t("提示文本不能为空"))
         
         if not prompt_audio:
-            raise Exception("提示音频不能为空")
+            raise Exception(t("提示音频不能为空"))
         
         # 加载提示音频
         prompt_audio, prompt_sample_rate = load_audio_from_file(prompt_audio)
@@ -716,8 +737,8 @@ def zero_shot_tts(model_manager, tts_text, prompt_text, prompt_audio, speed: flo
     except Exception as e:
         import traceback
         traceback.print_exc()
-        logger.error(f"零样本合成失败: {e}")
-        raise ValueError(f"零样本合成失败: {e}")
+        logger.error(t("零样本合成失败: {error}", error=e))
+        raise ValueError(t("零样本合成失败: {error}", error=e))
 
 def text_to_speech(model_manager, text, speaker_id, speed: float = 1.0):
     """
@@ -730,13 +751,13 @@ def text_to_speech(model_manager, text, speaker_id, speed: float = 1.0):
     start_time = time.time()
     try:
         if not model_manager.is_loaded:
-            raise Exception("模型未加载")
+            raise Exception(t("模型未加载"))
         
-        logger.info(f"TTS合成请求: {text[:50]}...")
+        logger.info(t("TTS合成请求: {text}...", text=text[:50]))
         
         # 验证输入
         if not text or not text.strip():
-            raise Exception("合成文本不能为空")
+            raise Exception(t("合成文本不能为空"))
         
         # 验证speaker_id
         if speaker_id:
@@ -745,22 +766,22 @@ def text_to_speech(model_manager, text, speaker_id, speed: float = 1.0):
             
             if speaker_id not in speaker_ids:
                 raise Exception(
-                    f"无效的speaker_id: {speaker_id}。可用speaker_id: {speaker_ids}"
+                    t("无效的speaker_id: {speaker_id}。可用speaker_id: {speaker_ids}", speaker_id=speaker_id, speaker_ids=speaker_ids)
                 )
         else:
             # 如果没有指定speaker_id，使用第一个可用的speaker
             available_speakers = model_manager.get_available_speakers()
             if available_speakers:
                 speaker_id = available_speakers[0]['speaker_id']
-                logger.info(f"使用默认speaker_id: {speaker_id}")
+                logger.info(t("使用默认speaker_id: {speaker_id}", speaker_id=speaker_id))
             else:
-                raise Exception("没有可用的说话人")
+                raise Exception(t("没有可用的说话人"))
         
         # 执行TTS推理
         segments_info = None
         if len(text) > 5000:
             # 长文本使用分段推理
-            logger.info(f"文本长度超过5000字符，使用分段推理")
+            logger.info(t("文本长度超过5000字符，使用分段推理"))
             output_audio = inference_tts_with_segmentation(
                 model_manager,
                 text,
@@ -801,8 +822,8 @@ def text_to_speech(model_manager, text, speaker_id, speed: float = 1.0):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        logger.error(f"TTS合成失败: {e}")
-        raise ValueError(f"TTS合成失败: {e}")
+        logger.error(t("TTS合成失败: {error}", error=e))
+        raise ValueError(t("TTS合成失败: {error}", error=e))
 
 #TODO: 实现RAG增强的语音合成逻辑
 def rag_enhanced_tts(request):
@@ -817,13 +838,13 @@ def rag_enhanced_tts(request):
     """
     try:
         if not model_manager.is_loaded:
-            raise HTTPException(status_code=500, detail="模型未加载")
+            raise HTTPException(status_code=500, detail=t("模型未加载"))
         
-        logger.info(f"RAG合成请求: {request.query[:50]}...")
+        logger.info(t("RAG合成请求: {text}...", text=request.query[:50]))
         
         # 验证输入
         if not request.query or not request.query.strip():
-            raise HTTPException(status_code=400, detail="查询文本不能为空")
+            raise HTTPException(status_code=400, detail=t("查询文本不能为空"))
         
         # TODO: 实现RAG增强的语音合成逻辑
         # 1. 检索相关知识
@@ -833,17 +854,17 @@ def rag_enhanced_tts(request):
         
         return APIResponse(
             success=False,
-            message="RAG接口暂未实现",
-            error="该接口预留给后续RAG功能实现"
+            message=t("RAG接口暂未实现"),
+            error=t("该接口预留给后续RAG功能实现")
         )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"RAG合成失败: {e}")
+        logger.error(t("RAG合成失败: {error}", error=e))
         return APIResponse(
             success=False,
-            message="RAG合成失败",
+            message=t("RAG合成失败"),
             error=str(e)
         )
 
@@ -856,7 +877,7 @@ def get_speakers():
             speaker_details.append(spk_id)
         return speaker_details
     except Exception as e:
-        logger.error(f"获取说话人列表失败: {e}")
+        logger.error(t("获取说话人列表失败: {error}", error=e))
         return []
 
 # ============================================================================

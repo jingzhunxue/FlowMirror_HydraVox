@@ -21,6 +21,42 @@ import torchaudio
 import soundfile as sf
 from tqdm import tqdm
 
+# ----------- i18n -------------
+_TRANSLATIONS = {
+    "音频重采样和转换单声道工具": {"en": "Audio resample and mono conversion tool"},
+    "源音频目录": {"en": "Source audio directory"},
+    "输出目录": {"en": "Output directory"},
+    "目标采样率 (默认: 24000)": {"en": "Target sample rate (default: 24000)"},
+    "覆盖已存在的文件": {"en": "Overwrite existing files"},
+    "并行处理线程数": {"en": "Parallel worker threads"},
+    "错误: 源目录 {path} 不存在": {"en": "Error: source directory {path} does not exist"},
+    "警告: 未找到支持的音频文件": {"en": "Warning: no supported audio files found"},
+    "找到 {count} 个音频文件": {"en": "Found {count} audio files"},
+    "目标采样率: {sr} Hz": {"en": "Target sample rate: {sr} Hz"},
+    "输出目录: {path}": {"en": "Output directory: {path}"},
+    "并行线程数: {count}": {"en": "Parallel workers: {count}"},
+    "处理音频文件": {"en": "Processing audio files"},
+    "step 2/5: ✅ All Finished! Resampled {success}/{total} files -> {path}": {
+        "en": "step 2/5: ✅ All Finished! Resampled {success}/{total} files -> {path}"
+    },
+    "警告: {count} 个文件处理失败": {"en": "Warning: {count} files failed"},
+    "处理文件 {path} 时出错: {error}": {"en": "Error processing file {path}: {error}"},
+}
+
+
+def _t(text: str, **kwargs) -> str:
+    lang = os.getenv("HYDRAVOX_LANG", os.getenv("HYDRAVOX_UI_LANG", "zh")).lower()
+    if lang not in ("zh", "en"):
+        lang = "zh"
+    entry = _TRANSLATIONS.get(text)
+    result = entry.get(lang, text) if entry else text
+    if kwargs:
+        try:
+            return result.format(**kwargs)
+        except Exception:
+            return result
+    return result
+
 # 支持的音频格式
 SUPPORTED_FORMATS = {".wav", ".flac", ".mp3", ".ogg", ".m4a", ".aac", ".wma"}
 
@@ -69,7 +105,7 @@ def resample_to_mono(src_path: Path, dst_path: Path, target_sr: int, overwrite: 
         return True
         
     except Exception as e:
-        print(f"处理文件 {src_path} 时出错: {e}")
+        print(_t("处理文件 {path} 时出错: {error}", path=src_path, error=e))
         return False
 
 def find_audio_files(src_dir: Path) -> List[Path]:
@@ -107,31 +143,31 @@ def process_single_file(args_tuple: Tuple[Path, Path, Path, int, bool]) -> bool:
 
 def main():
     """主函数"""
-    parser = argparse.ArgumentParser(description="音频重采样和转换单声道工具")
-    parser.add_argument("--src", type=Path, required=True, help="源音频目录")
-    parser.add_argument("--dst", type=Path, required=True, help="输出目录")
-    parser.add_argument("--sr", type=int, default=16000, help="目标采样率 (默认: 24000)")
-    parser.add_argument("--overwrite", action="store_true", help="覆盖已存在的文件")
-    parser.add_argument("--jobs", type=int, default=os.cpu_count(), help="并行处理线程数")
+    parser = argparse.ArgumentParser(description=_t("音频重采样和转换单声道工具"))
+    parser.add_argument("--src", type=Path, required=True, help=_t("源音频目录"))
+    parser.add_argument("--dst", type=Path, required=True, help=_t("输出目录"))
+    parser.add_argument("--sr", type=int, default=16000, help=_t("目标采样率 (默认: 24000)"))
+    parser.add_argument("--overwrite", action="store_true", help=_t("覆盖已存在的文件"))
+    parser.add_argument("--jobs", type=int, default=os.cpu_count(), help=_t("并行处理线程数"))
     
     args = parser.parse_args()
     
     # 检查源目录是否存在
     if not args.src.exists():
-        print(f"错误: 源目录 {args.src} 不存在", file=sys.stderr)
+        print(_t("错误: 源目录 {path} 不存在", path=args.src), file=sys.stderr)
         sys.exit(1)
     
     # 查找所有音频文件
     audio_files = find_audio_files(args.src)
     
     if not audio_files:
-        print("警告: 未找到支持的音频文件", file=sys.stderr)
+        print(_t("警告: 未找到支持的音频文件"), file=sys.stderr)
         sys.exit(1)
     
-    print(f"找到 {len(audio_files)} 个音频文件")
-    print(f"目标采样率: {args.sr} Hz")
-    print(f"输出目录: {args.dst}")
-    print(f"并行线程数: {args.jobs}")
+    print(_t("找到 {count} 个音频文件", count=len(audio_files)))
+    print(_t("目标采样率: {sr} Hz", sr=args.sr))
+    print(_t("输出目录: {path}", path=args.dst))
+    print(_t("并行线程数: {count}", count=args.jobs))
     
     # 准备多线程处理参数
     process_args = [
@@ -144,15 +180,20 @@ def main():
         results = list(tqdm(
             pool.imap_unordered(process_single_file, process_args),
             total=len(audio_files),
-            desc="处理音频文件"
+            desc=_t("处理音频文件")
         ))
     
     # 统计处理结果
     success_count = sum(results)
-    print(f"step 2/5: ✅ All Finished! Resampled {success_count}/{len(results)} files -> {args.dst}")
+    print(_t(
+        "step 2/5: ✅ All Finished! Resampled {success}/{total} files -> {path}",
+        success=success_count,
+        total=len(results),
+        path=args.dst,
+    ))
     
     if success_count != len(results):
-        print(f"警告: {len(results) - success_count} 个文件处理失败")
+        print(_t("警告: {count} 个文件处理失败", count=len(results) - success_count))
         sys.exit(1)
 
 if __name__ == "__main__":

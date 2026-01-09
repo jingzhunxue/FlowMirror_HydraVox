@@ -35,6 +35,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "🎤 语音合成": {"en": "🎤 Speech synthesis"},
     "语言": {"en": "Language"},
     "语言已更新。": {"en": "Language updated."},
+    "请求失败: {error}": {"en": "Request failed: {error}"},
     # inference_tab.py
     "可用说话人：{count} 个": {"en": "Available speakers: {count}"},
     "请选择 LLM 与 Flow 权重文件后再加载。": {
