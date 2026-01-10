@@ -1,9 +1,39 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
 import re
 from typing import List, Tuple, Optional
 from enum import Enum
+
+_TRANSLATIONS = {
+    "测试文本：": {"en": "Test text:"},
+    "处理结果：": {"en": "Processed result:"},
+    "分离结果：": {"en": "Separated result:"},
+    "格式化输出：": {"en": "Formatted output:"},
+    "只获取拼音：": {"en": "Pinyin only:"},
+    "只获取音标：": {"en": "Phonetic only:"},
+    "只获取文本（去除拼音和音标）：": {"en": "Text only (remove pinyin and phonetic):"},
+    "其他测试用例：": {"en": "Other test cases:"},
+    "输入: {text}": {"en": "Input: {text}"},
+    "拼音: {pinyin}": {"en": "Pinyin: {pinyin}"},
+    "音标: {phonetic}": {"en": "Phonetic: {phonetic}"},
+    "纯文本: '{text}'": {"en": "Plain text: '{text}'"},
+}
+
+
+def _t(text: str, **kwargs) -> str:
+    lang = os.getenv("HYDRAVOX_LANG", os.getenv("HYDRAVOX_UI_LANG", "zh")).lower()
+    if lang not in ("zh", "en"):
+        lang = "zh"
+    entry = _TRANSLATIONS.get(text)
+    result = entry.get(lang, text) if entry else text
+    if kwargs:
+        try:
+            return result.format(**kwargs)
+        except Exception:
+            return result
+    return result
 
 
 class ContentType(Enum):
@@ -353,33 +383,33 @@ if __name__ == "__main__":
 那2(saɪn)(2x 加  (6分之派))也就是f(x)的值域是多少呢？"""
     
     print("=" * 80)
-    print("测试文本：")
+    print(_t("测试文本："))
     print(test_text)
     print("=" * 80)
     
     # 处理文本
-    print("\n处理结果：")
+    print("\n" + _t("处理结果："))
     segments, types = process_pinyin_text(test_text)
     
-    print("\n分离结果：")
+    print("\n" + _t("分离结果："))
     for i, (seg, typ) in enumerate(zip(segments, types)):
         print(f"{i}: [{typ}] '{seg}'")
     
-    print("\n格式化输出：")
+    print("\n" + _t("格式化输出："))
     print(format_segments(segments, types, "\n"))
     
-    print("\n只获取拼音：")
+    print("\n" + _t("只获取拼音："))
     print(get_pinyin_only(segments, types))
     
-    print("\n只获取音标：")
+    print("\n" + _t("只获取音标："))
     print(get_phonetic_only(segments, types))
     
-    print("\n只获取文本（去除拼音和音标）：")
+    print("\n" + _t("只获取文本（去除拼音和音标）："))
     print(get_text_only(segments, types))
     
     # 更多测试用例
     print("\n" + "=" * 80)
-    print("\n其他测试用例：")
+    print("\n" + _t("其他测试用例："))
     
     test_cases = [
         "你好(ni3 hao3)世界",
@@ -392,7 +422,7 @@ if __name__ == "__main__":
     ]
     
     for test in test_cases:
-        print(f"\n输入: {test}")
+        print("\n" + _t("输入: {text}", text=test))
         segs, typs = process_pinyin_text(test)
         for seg, typ in zip(segs, typs):
             print(f"  [{typ}]: {seg}")
@@ -403,7 +433,7 @@ if __name__ == "__main__":
         text_only = get_text_only(segs, typs)
         
         if pinyin_list:
-            print(f"  拼音: {pinyin_list}")
+            print("  " + _t("拼音: {pinyin}", pinyin=pinyin_list))
         if phonetic_list:
-            print(f"  音标: {phonetic_list}")
-        print(f"  纯文本: '{text_only}'")
+            print("  " + _t("音标: {phonetic}", phonetic=phonetic_list))
+        print("  " + _t("纯文本: '{text}'", text=text_only))

@@ -2,6 +2,7 @@ import requests
 import os
 import logging
 from typing import Dict, Any, Optional, List
+from ..i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class APIClient:
             logger.error(f"API request failed: {method} {url}, error: {e}")
             return {
                 "success": False,
-                "message": f"请求失败: {str(e)}",
+                "message": t("请求失败: {error}", error=str(e)),
                 "error": str(e)
             }
     

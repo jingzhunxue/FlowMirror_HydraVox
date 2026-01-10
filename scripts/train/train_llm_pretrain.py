@@ -45,6 +45,17 @@ from server.model_utils.cosyvoice.tokenizer.tokenizer import get_qwen_tokenizer
 
 from fmtn import create_default_tn
 
+try:
+    from user_interface.i18n import t
+except Exception:
+    def t(text: str, **kwargs):
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
+
 tn = create_default_tn(verbose=True)
 
 USEFUL_COLUMNS_LLM = ["text", "audio"]
@@ -208,8 +219,7 @@ def _get_onnx_tokenizer_session(
     effective_use_cuda = bool(use_cuda) and ("CUDAExecutionProvider" in available)
     if bool(use_cuda) and not effective_use_cuda:
         logging.warning(
-            "onnxruntime 未检测到 CUDAExecutionProvider（available=%s），将自动使用 CPUExecutionProvider。",
-            ",".join(sorted(available)),
+            t("train.onnx_no_cuda", providers=",".join(sorted(available))),
         )
 
     key = f"{onnx_path}|cuda={effective_use_cuda}|dev={device_id}|intra={intra_op_num_threads}"
@@ -300,7 +310,7 @@ class LlmPretrainDataCollator:
                 text_token_lens.append(int(tt.numel()))
         elif "text" in features[0]:
             if self.tokenizer is None:
-                raise ValueError("数据只有 text 字段但未提供 tokenizer，无法生成 text_token。")
+                raise ValueError(t("train.text_tokenizer_missing"))
             special_tokens = _get_added_special_tokens(self.tokenizer)
             for f in features:
                 text = tn.process_text(f["text"])
@@ -317,14 +327,14 @@ class LlmPretrainDataCollator:
                 text_tokens.append(tt)
                 text_token_lens.append(int(tt.numel()))
         else:
-            raise ValueError("LLM pretrain 需要 text_token 或 text 字段。")
+            raise ValueError(t("train.llm_text_required"))
 
         batch["text_token"] = pad_sequence(text_tokens, batch_first=True, padding_value=0)
         batch["text_token_len"] = torch.tensor(text_token_lens, dtype=torch.int64)
 
         # -------- speech_token / speech_token_len（从音频实时提取）--------
         if "audio" not in features[0]:
-            raise ValueError("LLM pretrain 需要 audio 字段以实时提取 speech_token。")
+            raise ValueError(t("train.llm_audio_required"))
 
         onnx_session = _get_onnx_tokenizer_session(
             self.tokenizer_onnx_path,
@@ -373,7 +383,7 @@ def _load_state_dict_maybe_container(path: str) -> Dict[str, torch.Tensor]:
         return obj["state_dict"]
     if isinstance(obj, dict):
         return obj
-    raise ValueError("不支持的 checkpoint 格式：期望为 state_dict 或 {'state_dict': ...}")
+    raise ValueError(t("train.ckpt_format_invalid"))
 
 
 def main():
@@ -382,32 +392,32 @@ def main():
         "--config",
         type=str,
         default="pretrained_models/Fun-CosyVoice3-0.5B/cosyvoice3_mtp_pretrain.yaml",
-        help="hyperpyyaml 配置路径",
+        help=t("train.cli_config"),
     )
-    parser.add_argument("--train_data", type=str, required=True, help="训练数据路径（load_from_disk），逗号分隔")
-    parser.add_argument("--cv_data", type=str, default="", help="验证数据路径（可选），逗号分隔；为空则不评估")
-    parser.add_argument("--output_dir", type=str, required=True, help="输出目录")
+    parser.add_argument("--train_data", type=str, required=True, help=t("train.cli_train_data"))
+    parser.add_argument("--cv_data", type=str, default="", help=t("train.cli_cv_data"))
+    parser.add_argument("--output_dir", type=str, required=True, help=t("train.cli_output_dir"))
     parser.add_argument(
         "--model_ckpt",
         type=str,
         default="",
-        help="初始模型 checkpoint（state_dict 或 {'state_dict':...}）。若指定 --resume_from_checkpoint，可不传。",
+        help=t("train.cli_model_ckpt"),
     )
     parser.add_argument(
         "--resume_from_checkpoint",
         type=str,
         default="",
-        help="从 HuggingFace Trainer 的 checkpoint 目录断点续训（如 output_dir/checkpoint-10000）。传空则不启用。",
+        help=t("train.cli_resume"),
     )
-    parser.add_argument("--qwen_pretrain_path", type=str, default="", help="Qwen2Encoder 的 pretrain_path / tokenizer 路径")
+    parser.add_argument("--qwen_pretrain_path", type=str, default="", help=t("train.cli_qwen_pretrain"))
     parser.add_argument(
         "--tokenizer_onnx_path",
         type=str,
         default="jzx-ai-lab/HydraVox-CV3/speech_tokenizer_v3.onnx",
-        help="speech tokenizer ONNX 路径（从音频实时提取 speech_token）",
+        help=t("train.cli_tokenizer_onnx"),
     )
-    parser.add_argument("--onnx_use_cuda", action="store_true", default=True, help="ONNX tokenizer 是否使用 CUDAExecutionProvider")
-    parser.add_argument("--onnx_device_id", type=int, default=None, help="ONNX CUDA device_id（默认取 LOCAL_RANK/RANK，否则 0）")
+    parser.add_argument("--onnx_use_cuda", action="store_true", default=True, help=t("train.cli_onnx_use_cuda"))
+    parser.add_argument("--onnx_device_id", type=int, default=None, help=t("train.cli_onnx_device_id"))
     parser.add_argument("--ort_intra_op_num_threads", type=int, default=1)
 
     # 允许用 yaml 的 train_conf 作为默认值；CLI 指定则覆盖
@@ -427,7 +437,7 @@ def main():
     args, _ = parser.parse_known_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    logging.info("🚀 LLM pretrain 脚本启动")
+    logging.info(t("train.llm_pretrain_start"))
 
     # 1) load yaml & build model
     with open(args.config, "r") as f:
@@ -447,22 +457,22 @@ def main():
     resume_path = str(args.resume_from_checkpoint).strip()
     if resume_path:
         if not os.path.exists(resume_path):
-            raise FileNotFoundError(f"--resume_from_checkpoint 路径不存在：{resume_path}")
+            raise FileNotFoundError(t("train.resume_not_found", path=resume_path))
         if not os.path.isdir(resume_path):
-            raise ValueError(f"--resume_from_checkpoint 需要传 checkpoint 目录（如 checkpoint-10000），但得到：{resume_path}")
-        logging.info("将从 Trainer checkpoint 断点续训：%s", resume_path)
+            raise ValueError(t("train.resume_not_dir", path=resume_path))
+        logging.info(t("train.resume_from", path=resume_path))
     else:
         if not str(args.model_ckpt).strip():
-            raise ValueError("未指定 --resume_from_checkpoint 时，必须提供 --model_ckpt 作为初始权重。")
+            raise ValueError(t("train.model_ckpt_required"))
         model_state = _load_state_dict_maybe_container(args.model_ckpt)
         # 兼容 train_speech_model.py 的 ckpt 里可能带 epoch/step
         model_state.pop("epoch", None)
         model_state.pop("step", None)
         missing, unexpected = model.load_state_dict(model_state, strict=False)
         if missing:
-            logging.warning(f"load_state_dict missing keys: {len(missing)}（示例：{missing[:5]}）")
+            logging.warning(t("train.missing_keys", count=len(missing), sample=missing[:5]))
         if unexpected:
-            logging.warning(f"load_state_dict unexpected keys: {len(unexpected)}（示例：{unexpected[:5]}）")
+            logging.warning(t("train.unexpected_keys", count=len(unexpected), sample=unexpected[:5]))
 
     # 3) dataset
     train_paths = [p for p in args.train_data.split(",") if p.strip()]
@@ -567,5 +577,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

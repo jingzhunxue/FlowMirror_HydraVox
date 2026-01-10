@@ -26,6 +26,17 @@ from hyperpyyaml import load_hyperpyyaml
 from torch.nn.utils.rnn import pad_sequence
 from transformers import PreTrainedTokenizerBase, Trainer, TrainingArguments
 
+try:
+    from user_interface.i18n import t
+except Exception:
+    def t(text: str, **kwargs):
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
+
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent.parent.parent.absolute()
 third_party_dir = project_root / "server/model_utils"
@@ -42,7 +53,7 @@ multiprocessing.set_start_method("spawn", force=True)
 try:
     tn = create_default_tn(verbose=True)
 except Exception:
-    print("Failed to load text normalization library")
+    print(t("train.tn_load_failed"))
     tn = None
 
 USEFUL_COLUMNS_LLM = ["text", "text_token", "audio"]
@@ -55,7 +66,7 @@ def _load_state_dict_maybe_container(path: str) -> Dict[str, torch.Tensor]:
         return obj["state_dict"]
     if isinstance(obj, dict):
         return obj
-    raise ValueError("不支持的 checkpoint 格式：期望为 state_dict 或 {'state_dict': ...}")
+    raise ValueError(t("train.ckpt_format_invalid"))
 
 
 def _maybe_get_default_config(model_type: str) -> str:
@@ -97,20 +108,24 @@ def _build_train_eval_dataset(
     if auto_val_split or not val_dss:
         full_dataset = concatenate_datasets(train_dss).shuffle(seed=42)
         if val_split_ratio <= 0:
-            logging.info("自动划分验证集关闭（val_split_ratio <= 0）：仅训练不验证")
+            logging.info(t("train.auto_val_disabled"))
             return full_dataset, None
         val_size = int(len(full_dataset) * val_split_ratio)
         if val_size <= 0:
-            logging.info("验证集大小为 0：仅训练不验证")
+            logging.info(t("train.val_size_zero"))
             return full_dataset, None
         if val_size >= len(full_dataset):
             raise ValueError(
-                f"val_split_ratio 过大导致验证集大小({val_size}) >= 数据集总量({len(full_dataset)})"
+                t(
+                    "train.val_split_too_large",
+                    val_size=val_size,
+                    total=len(full_dataset),
+                )
             )
         train_size = len(full_dataset) - val_size
         train_dataset = full_dataset.select(range(train_size))
         eval_dataset = full_dataset.select(range(train_size, train_size + val_size))
-        logging.info("自动划分验证集: 训练集 %s，验证集 %s", train_size, val_size)
+        logging.info(t("train.auto_val_split", train_size=train_size, val_size=val_size))
         return train_dataset, eval_dataset
 
     train_dataset = concatenate_datasets(train_dss).shuffle(seed=42)
@@ -246,8 +261,7 @@ def _get_onnx_tokenizer_session(
     effective_use_cuda = bool(use_cuda) and ("CUDAExecutionProvider" in available)
     if bool(use_cuda) and not effective_use_cuda:
         logging.warning(
-            "onnxruntime 未检测到 CUDAExecutionProvider（available=%s），将自动使用 CPUExecutionProvider。",
-            ",".join(sorted(available)),
+            t("train.onnx_no_cuda", providers=",".join(sorted(available)))
         )
 
     key = f"{onnx_path}|cuda={effective_use_cuda}|dev={device_id}|intra={intra_op_num_threads}"
@@ -282,9 +296,9 @@ def _ensure_speaker_verification_model(model_path: str) -> str:
             if path.is_file() or any(path.iterdir()):
                 return str(path)
     except (OSError, PermissionError) as e:
-        logging.warning("检查说话人模型失败: %s", e)
+        logging.warning(t("train.sv_check_failed", error=e))
 
-    logging.info("说话人模型不存在，准备下载: %s", model_path)
+    logging.info(t("train.sv_missing_download", model_path=model_path))
     try:
         from modelscope import snapshot_download
 
@@ -299,7 +313,13 @@ def _ensure_speaker_verification_model(model_path: str) -> str:
         except Exception:
             fallback_id = "iic/speech_campplus_sv_zh-cn_16k-common"
             if model_path != fallback_id:
-                logging.warning("下载 %s 失败，回退到 %s", model_path, fallback_id)
+                logging.warning(
+                    t(
+                        "train.sv_download_failed_fallback",
+                        model_path=model_path,
+                        fallback_id=fallback_id,
+                    )
+                )
                 downloaded = snapshot_download(
                     model_id=fallback_id,
                     revision="v1.0.0",
@@ -314,16 +334,22 @@ def _ensure_speaker_verification_model(model_path: str) -> str:
                 shutil.rmtree(path)
             try:
                 path.symlink_to(downloaded_path)
-                logging.info("创建软链接: %s -> %s", path, downloaded_path)
+                logging.info(
+                    t(
+                        "train.sv_symlink",
+                        src=path,
+                        dst=downloaded_path,
+                    )
+                )
             except (OSError, NotImplementedError):
                 shutil.copytree(downloaded_path, path)
-                logging.info("已复制模型文件到: %s", path)
+                logging.info(t("train.sv_copied", path=path))
 
         if path.exists():
             return str(path)
         return str(downloaded_path)
     except Exception as e:
-        logging.warning("下载说话人模型失败: %s，回退到在线模式", e)
+        logging.warning(t("train.sv_download_failed_online", error=e))
         return model_path
 
 
@@ -417,11 +443,13 @@ def _extract_speech_tokens_with_batch_fallback(
             if first_err is None:
                 first_err = e
             logging.warning(
-                "speech_token 提取失败，将使用 batch 内其它样本回退替代（idx=%s, audio=%s, err=%s: %s）",
-                i,
-                _audio_ref(f.get("audio")),
-                e.__class__.__name__,
-                str(e)[:500],
+                t(
+                    "train.speech_token_fallback",
+                    idx=i,
+                    audio=_audio_ref(f.get("audio")),
+                    err_type=e.__class__.__name__,
+                    error=str(e)[:500],
+                )
             )
             speech_tokens[i] = None
 
@@ -431,11 +459,13 @@ def _extract_speech_tokens_with_batch_fallback(
             pick = random.choice(_SPEECH_TOKEN_POOL)
             pick_len = int(pick.numel())
             logging.error(
-                "本 batch 所有音频 speech_token 提取均失败，已从历史成功池随机抽取兜底继续训练（pool=%s, pick_len=%s, err=%s: %s）",
-                len(_SPEECH_TOKEN_POOL),
-                pick_len,
-                first_err.__class__.__name__ if first_err is not None else "UnknownError",
-                str(first_err)[:500] if first_err is not None else "",
+                t(
+                    "train.speech_token_pool_fallback",
+                    pool=len(_SPEECH_TOKEN_POOL),
+                    pick_len=pick_len,
+                    err_type=first_err.__class__.__name__ if first_err is not None else "UnknownError",
+                    error=str(first_err)[:500] if first_err is not None else "",
+                )
             )
             bsz = len(features)
             return [pick] * bsz, [pick_len] * bsz
@@ -446,11 +476,13 @@ def _extract_speech_tokens_with_batch_fallback(
         fallback_len = max(1, fallback_len)
         fb = torch.full((fallback_len,), fallback_id, dtype=torch.long)
         logging.error(
-            "本 batch 所有音频 speech_token 提取均失败，且历史成功池为空，已使用占位 token 兜底继续训练（fallback_id=%s, fallback_len=%s, err=%s: %s）",
-            fallback_id,
-            fallback_len,
-            first_err.__class__.__name__ if first_err is not None else "UnknownError",
-            str(first_err)[:500] if first_err is not None else "",
+            t(
+                "train.speech_token_placeholder_fallback",
+                fallback_id=fallback_id,
+                fallback_len=fallback_len,
+                err_type=first_err.__class__.__name__ if first_err is not None else "UnknownError",
+                error=str(first_err)[:500] if first_err is not None else "",
+            )
         )
         bsz = len(features)
         return [fb] * bsz, [fallback_len] * bsz
@@ -514,7 +546,7 @@ class LlmPretrainDataCollator:
                 text_token_lens.append(int(tt.numel()))
         elif "text" in features[0]:
             if self.tokenizer is None:
-                raise ValueError("数据只有 text 字段但未提供 tokenizer，无法生成 text_token。")
+                raise ValueError(t("train.text_tokenizer_missing"))
             special_tokens = _get_added_special_tokens(self.tokenizer)
             for f in features:
                 if tn is not None:
@@ -532,13 +564,13 @@ class LlmPretrainDataCollator:
                 text_tokens.append(tt)
                 text_token_lens.append(int(tt.numel()))
         else:
-            raise ValueError("LLM 训练需要 text_token 或 text 字段。")
+            raise ValueError(t("train.llm_text_required"))
 
         batch["text_token"] = pad_sequence(text_tokens, batch_first=True, padding_value=0)
         batch["text_token_len"] = torch.tensor(text_token_lens, dtype=torch.int64)
 
         if "audio" not in features[0]:
-            raise ValueError("LLM 训练需要 audio 字段以实时提取 speech_token。")
+            raise ValueError(t("train.llm_audio_required"))
 
         onnx_session = _get_onnx_tokenizer_session(
             self.tokenizer_onnx_path,
@@ -553,6 +585,7 @@ class LlmPretrainDataCollator:
         bsz = len(features)
         batch["instruct_token"] = torch.zeros((bsz, 0), dtype=torch.long)
         batch["instruct_token_len"] = torch.zeros((bsz,), dtype=torch.int64)
+        batch["labels"] = torch.zeros((bsz,), dtype=torch.long)
 
         return batch
 
@@ -580,7 +613,7 @@ class FlowPretrainDataCollator:
         batch: Dict[str, torch.Tensor] = {}
 
         if "audio" not in features[0]:
-            raise ValueError("FLOW 训练需要 audio 字段以提取 speech_feat。")
+            raise ValueError(t("train.flow_audio_required"))
         feats: List[torch.Tensor] = []
         feat_lens: List[int] = []
         for f in features:
@@ -599,7 +632,7 @@ class FlowPretrainDataCollator:
                 embs.append(e.to(torch.float32))
         else:
             if not self.allow_online_embedding:
-                raise ValueError("数据缺少 embedding 且已关闭在线提取（--no_online_embedding）。")
+                raise ValueError(t("train.embedding_missing_no_online"))
             device = self.sv_device
             if device is None:
                 device = f"cuda:{self.onnx_device_id}" if torch.cuda.is_available() else "cpu"
@@ -629,6 +662,7 @@ class FlowPretrainDataCollator:
             speech_tokens, speech_token_lens = _extract_speech_tokens_with_batch_fallback(features, onnx_session)
         batch["speech_token"] = pad_sequence(speech_tokens, batch_first=True, padding_value=0)
         batch["speech_token_len"] = torch.tensor(speech_token_lens, dtype=torch.int64)
+        batch["labels"] = torch.zeros((len(features),), dtype=torch.long)
 
         return batch
 
@@ -712,23 +746,24 @@ def _build_training_args(args: argparse.Namespace, cfg: Dict[str, Any], eval_dat
         dataloader_num_workers=int(args.dataloader_num_workers),
         remove_unused_columns=False,
         save_safetensors=False,
+        label_names=["labels"],
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=["llm", "flow"], required=True, help="模型类型")
-    parser.add_argument("--config", type=str, default="", help="hyperpyyaml 配置路径")
-    parser.add_argument("--train_data", type=str, required=True, help="训练数据路径，逗号分隔")
-    parser.add_argument("--cv_data", type=str, default="", help="验证数据路径，逗号分隔")
-    parser.add_argument("--auto_val_split", action="store_true", default=False, help="自动划分验证集")
-    parser.add_argument("--val_split_ratio", type=float, default=0.05, help="验证集比例")
-    parser.add_argument("--output_dir", type=str, required=True, help="输出目录")
-    parser.add_argument("--model_ckpt", type=str, default="", help="初始模型 checkpoint")
-    parser.add_argument("--resume_from_checkpoint", type=str, default="", help="Trainer 断点目录")
-    parser.add_argument("--tokenizer_path", type=str, default="", help="LLM tokenizer/Qwen 路径；flow 可选 onnx 路径")
-    parser.add_argument("--tokenizer_onnx_path", type=str, default="", help="speech tokenizer ONNX 路径")
-    parser.add_argument("--qwen_pretrain_path", type=str, default="", help="Qwen2Encoder pretrain_path/tokenizer 路径")
+    parser.add_argument("--model", choices=["llm", "flow"], required=True, help=t("train.cli_model"))
+    parser.add_argument("--config", type=str, default="", help=t("train.cli_config"))
+    parser.add_argument("--train_data", type=str, required=True, help=t("train.cli_train_data"))
+    parser.add_argument("--cv_data", type=str, default="", help=t("train.cli_cv_data"))
+    parser.add_argument("--auto_val_split", action="store_true", default=False, help=t("train.cli_auto_val"))
+    parser.add_argument("--val_split_ratio", type=float, default=0.05, help=t("train.cli_val_split"))
+    parser.add_argument("--output_dir", type=str, required=True, help=t("train.cli_output_dir"))
+    parser.add_argument("--model_ckpt", type=str, default="", help=t("train.cli_model_ckpt"))
+    parser.add_argument("--resume_from_checkpoint", type=str, default="", help=t("train.cli_resume"))
+    parser.add_argument("--tokenizer_path", type=str, default="", help=t("train.cli_tokenizer_path"))
+    parser.add_argument("--tokenizer_onnx_path", type=str, default="", help=t("train.cli_tokenizer_onnx"))
+    parser.add_argument("--qwen_pretrain_path", type=str, default="", help=t("train.cli_qwen_pretrain"))
 
     parser.add_argument("--learning_rate", type=float, default=None)
     parser.add_argument("--num_train_epochs", type=int, default=None)
@@ -762,10 +797,10 @@ def main() -> None:
     args, _ = parser.parse_known_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    logging.info("🚀 训练脚本启动 (model=%s)", args.model)
+    logging.info(t("train.start", model=args.model))
 
     if args.enable_lora:
-        logging.warning("新模型预训练不支持 LoRA 参数，已忽略 --enable_lora 等配置。")
+        logging.warning(t("train.lora_ignored"))
 
     if not args.config:
         args.config = _maybe_get_default_config(args.model)
@@ -773,13 +808,13 @@ def main() -> None:
     resume_path = str(args.resume_from_checkpoint).strip()
     if resume_path:
         if not os.path.exists(resume_path):
-            raise FileNotFoundError(f"--resume_from_checkpoint 路径不存在：{resume_path}")
+            raise FileNotFoundError(t("train.resume_not_found", path=resume_path))
         if not os.path.isdir(resume_path):
-            raise ValueError(f"--resume_from_checkpoint 需要传 checkpoint 目录，但得到：{resume_path}")
-        logging.info("将从 Trainer checkpoint 断点续训：%s", resume_path)
+            raise ValueError(t("train.resume_not_dir", path=resume_path))
+        logging.info(t("train.resume_from", path=resume_path))
     else:
         if not str(args.model_ckpt).strip():
-            raise ValueError("未指定 --resume_from_checkpoint 时，必须提供 --model_ckpt 作为初始权重。")
+            raise ValueError(t("train.model_ckpt_required"))
 
     with open(args.config, "r") as f:
         if args.model == "llm":
@@ -808,9 +843,9 @@ def main() -> None:
         model_state.pop("step", None)
         missing, unexpected = model.load_state_dict(model_state, strict=False)
         if missing:
-            logging.warning("load_state_dict missing keys: %s（示例：%s）", len(missing), missing[:5])
+            logging.warning(t("train.missing_keys", count=len(missing), sample=missing[:5]))
         if unexpected:
-            logging.warning("load_state_dict unexpected keys: %s（示例：%s）", len(unexpected), unexpected[:5])
+            logging.warning(t("train.unexpected_keys", count=len(unexpected), sample=unexpected[:5]))
 
     train_paths = [p for p in args.train_data.split(",") if p.strip()]
     val_paths = [p for p in args.cv_data.split(",") if p.strip()] if args.cv_data.strip() else []

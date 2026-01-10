@@ -12,6 +12,17 @@ from multiprocessing.pool import ThreadPool
 from tqdm import tqdm
 import os
 
+try:
+    from user_interface.i18n import t
+except Exception:
+    def t(text: str, **kwargs):
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
+
 AUDIO_EXTS = {".wav", ".flac", ".mp3", ".ogg", ".m4a"}
 VIDEO_EXTS = {".mp4", ".mov", ".webm", ".mkv"}
 
@@ -39,16 +50,16 @@ def find_files(path: Path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--src", type=Path, required=True, help="原始目录")
-    parser.add_argument("--dst", type=Path, required=True, help="输出目录")
-    parser.add_argument("--sr", type=int, default=16000, help="目标采样率")
-    parser.add_argument("--overwrite", action="store_true", help="覆盖已存在文件")
-    parser.add_argument("--jobs", type=int, default=os.cpu_count(), help="并行线程数")
+    parser.add_argument("--src", type=Path, required=True, help=t("convert.cli_src"))
+    parser.add_argument("--dst", type=Path, required=True, help=t("convert.cli_dst"))
+    parser.add_argument("--sr", type=int, default=16000, help=t("convert.cli_sr"))
+    parser.add_argument("--overwrite", action="store_true", help=t("convert.cli_overwrite"))
+    parser.add_argument("--jobs", type=int, default=os.cpu_count(), help=t("convert.cli_jobs"))
     args = parser.parse_args()
 
     all_files = find_files(args.src)
     if not all_files:
-        print("No supported media files found.", file=sys.stderr)
+        print(t("convert.no_files"), file=sys.stderr)
         sys.exit(1)
 
     def _worker(src_path: Path):
@@ -60,7 +71,14 @@ def main():
     with ThreadPool(args.jobs) as pool:
         results = list(tqdm(pool.imap_unordered(_worker, all_files), total=len(all_files)))
 
-    print(f"step 1/5: ✅ All Finished! Converted {sum(results)}/{len(results)} files -> {args.dst}")
+    print(
+        t(
+            "convert.step_done",
+            done=sum(results),
+            total=len(results),
+            output=args.dst,
+        )
+    )
 
 if __name__ == "__main__":
     main()

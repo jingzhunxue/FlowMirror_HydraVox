@@ -27,6 +27,86 @@ from audio import mel_spectrogram
 
 import whisper
 
+# ----------- i18n -------------
+_TRANSLATIONS = {
+    "✅ CampPlus 模型已存在: {path}": {"en": "✅ CampPlus model already exists: {path}"},
+    "⚠️ 检查本地模型时出错: {error}": {"en": "⚠️ Failed to check local model: {error}"},
+    "📥 正在下载 CampPlus 模型到: {path}": {"en": "📥 Downloading CampPlus model to: {path}"},
+    "✅ 创建软链接: {dst} -> {src}": {"en": "✅ Created symlink: {dst} -> {src}"},
+    "✅ 复制模型文件到: {path}": {"en": "✅ Copied model files to: {path}"},
+    "✅ CampPlus 模型准备完成: {path}": {"en": "✅ CampPlus model ready: {path}"},
+    "❌ 下载 CampPlus 模型失败: {error}": {"en": "❌ Failed to download CampPlus model: {error}"},
+    "💡 回退到在线模式...": {"en": "💡 Falling back to online mode..."},
+    "⚠️ 跳过超长音频样本 (rank {rank}): {duration:.1f}s > 30s": {
+        "en": "⚠️ Skipping overlong audio sample (rank {rank}): {duration:.1f}s > 30s"
+    },
+    "⚠️ 处理样本时出错 (rank {rank}): {error}": {
+        "en": "⚠️ Failed to process sample (rank {rank}): {error}"
+    },
+    "HF dataset 路径": {"en": "HF dataset path"},
+    "保存路径": {"en": "Output path"},
+    "cpu / cuda": {"en": "cpu / cuda"},
+    "datasets.map 并发": {"en": "datasets.map workers"},
+    "裁剪 start end (闭开区间)": {"en": "Slice start end (half-open interval)"},
+    "跳过数据清洗步骤，保留所有样本（包括问题样本）": {
+        "en": "Skip data cleaning and keep all samples (including problematic ones)"
+    },
+    "🔄 检查并下载 CampPlus 模型...": {"en": "🔄 Checking and downloading CampPlus model..."},
+    "已加载数据集: {count} 条样本": {"en": "Loaded dataset: {count} examples"},
+    "🚀 开始提取 speech token，使用 {num_proc} 个进程...": {
+        "en": "🚀 Extracting speech tokens with {num_proc} processes..."
+    },
+    "✅ Token 提取完成，共处理 {count} 个样本": {"en": "✅ Token extraction done, processed {count} samples"},
+    "❌ Token 提取失败: {error}": {"en": "❌ Token extraction failed: {error}"},
+    "💡 建议:": {"en": "💡 Suggestions:"},
+    "   1. 减少 --num-proc 参数值": {"en": "   1. Reduce the --num-proc value"},
+    "   2. 检查 GPU 内存是否充足": {"en": "   2. Check if GPU memory is sufficient"},
+    "   3. 检查输入数据格式是否正确": {"en": "   3. Check whether input data format is correct"},
+    "🧹 开始清洗数据，过滤问题样本...": {"en": "🧹 Cleaning data and filtering problematic samples..."},
+    "📊 数据清洗完成:": {"en": "📊 Data cleaning completed:"},
+    "   • 原始样本数: {count}": {"en": "   • Original samples: {count}"},
+    "   • 有效样本数: {count}": {"en": "   • Valid samples: {count}"},
+    "   • 过滤样本数: {count} ({ratio:.1f}%)": {"en": "   • Filtered samples: {count} ({ratio:.1f}%)"},
+    "🔍 问题样本统计:": {"en": "🔍 Problem sample stats:"},
+    "   • {problem_type}: {count} 个": {"en": "   • {problem_type}: {count}"},
+    "❌ 清洗后没有有效样本，请检查输入数据和处理逻辑": {
+        "en": "❌ No valid samples after cleaning; check input data and logic"
+    },
+    "⚠️ 跳过数据清洗步骤，保留所有样本（包括问题样本）": {
+        "en": "⚠️ Skipping data cleaning; keeping all samples (including problematic ones)"
+    },
+    "📈 数据质量统计:": {"en": "📈 Data quality stats:"},
+    "   • Token 长度: 平均 {avg:.1f}, 范围 [{min}, {max}]": {
+        "en": "   • Token length: avg {avg:.1f}, range [{min}, {max}]"
+    },
+    "   • Speech feat 长度: 平均 {avg:.1f}, 范围 [{min}, {max}]": {
+        "en": "   • Speech feat length: avg {avg:.1f}, range [{min}, {max}]"
+    },
+    "   • Embedding 维度: {dim}": {"en": "   • Embedding dim: {dim}"},
+    "   ⚠️ 统计信息计算失败: {error}": {"en": "   ⚠️ Failed to compute stats: {error}"},
+    "清洗后的": {"en": "cleaned "},
+    "💾 保存{suffix}数据集到: {path}": {"en": "💾 Saving {suffix}dataset to: {path}"},
+    "step 5/5: ✅ 全部完成！处理后的数据集 -> {path}": {
+        "en": "step 5/5: ✅ All Finished! processed dataset → {path}"
+    },
+    "📈 最终保存 {count} 个{suffix}样本": {"en": "📈 Saved {count} {suffix}samples"},
+    "❌ 保存数据集失败: {error}": {"en": "❌ Failed to save dataset: {error}"},
+}
+
+
+def _t(text: str, **kwargs: Any) -> str:
+    lang = os.getenv("HYDRAVOX_LANG", os.getenv("HYDRAVOX_UI_LANG", "zh")).lower()
+    if lang not in ("zh", "en"):
+        lang = "zh"
+    entry = _TRANSLATIONS.get(text)
+    result = entry.get(lang, text) if entry else text
+    if kwargs:
+        try:
+            return result.format(**kwargs)
+        except Exception:
+            return result
+    return result
+
 # ----------- 模型路径 -------------
 TOKENIZER_ONNX_PATH = Path(
     "jzx-ai-lab/HydraVox-CV3/speech_tokenizer_v3.onnx"
@@ -45,12 +125,12 @@ def download_campplus_model():
     """下载 CampPlus 模型到本地"""
     try:
         if CAMPPLUS_MODEL_DIR.exists() and any(CAMPPLUS_MODEL_DIR.iterdir()):
-            print(f"✅ CampPlus 模型已存在: {CAMPPLUS_MODEL_DIR}")
+            print(_t("✅ CampPlus 模型已存在: {path}", path=CAMPPLUS_MODEL_DIR))
             return str(CAMPPLUS_MODEL_DIR)
     except (OSError, PermissionError) as e:
-        print(f"⚠️ 检查本地模型时出错: {e}")
+        print(_t("⚠️ 检查本地模型时出错: {error}", error=e))
     
-    print(f"📥 正在下载 CampPlus 模型到: {CAMPPLUS_MODEL_DIR}")
+    print(_t("📥 正在下载 CampPlus 模型到: {path}", path=CAMPPLUS_MODEL_DIR))
     try:
         from modelscope import snapshot_download
         
@@ -73,17 +153,17 @@ def download_campplus_model():
             # 尝试创建软链接，如果失败则复制
             try:
                 CAMPPLUS_MODEL_DIR.symlink_to(Path(model_path).resolve())
-                print(f"✅ 创建软链接: {CAMPPLUS_MODEL_DIR} -> {model_path}")
+                print(_t("✅ 创建软链接: {dst} -> {src}", dst=CAMPPLUS_MODEL_DIR, src=model_path))
             except (OSError, NotImplementedError):
                 shutil.copytree(model_path, CAMPPLUS_MODEL_DIR)
-                print(f"✅ 复制模型文件到: {CAMPPLUS_MODEL_DIR}")
+                print(_t("✅ 复制模型文件到: {path}", path=CAMPPLUS_MODEL_DIR))
         
-        print(f"✅ CampPlus 模型准备完成: {CAMPPLUS_MODEL_DIR}")
+        print(_t("✅ CampPlus 模型准备完成: {path}", path=CAMPPLUS_MODEL_DIR))
         return str(CAMPPLUS_MODEL_DIR)
         
     except Exception as e:
-        print(f"❌ 下载 CampPlus 模型失败: {e}")
-        print("💡 回退到在线模式...")
+        print(_t("❌ 下载 CampPlus 模型失败: {error}", error=e))
+        print(_t("💡 回退到在线模式..."))
         return "iic/speech_campplus_sv_zh-cn_16k-common"
 
 def get_multi_sessions(rank: int, device: str):
@@ -169,7 +249,7 @@ def extract_speech_token(example, rank: int, device: str):
             duration_sec = wav.shape[1] / 16000
             if duration_sec > 30:
                 # 返回空值，但保持字段结构一致
-                print(f"⚠️ 跳过超长音频样本 (rank {rank}): {duration_sec:.1f}s > 30s")
+                print(_t("⚠️ 跳过超长音频样本 (rank {rank}): {duration:.1f}s > 30s", rank=rank, duration=duration_sec))
                 return {
                     "speech_token": [], 
                     "speech_token_len": 0,
@@ -214,7 +294,7 @@ def extract_speech_token(example, rank: int, device: str):
         
     except Exception as e:
         # 发生错误时返回空值，但保持字段结构一致
-        print(f"⚠️ 处理样本时出错 (rank {rank}): {e}")
+        print(_t("⚠️ 处理样本时出错 (rank {rank}): {error}", rank=rank, error=e))
         return {
             "speech_token": [], 
             "speech_token_len": 0,
@@ -226,21 +306,21 @@ def extract_speech_token(example, rank: int, device: str):
 # ----------- 主函数 -------------
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=Path, required=True, help="HF dataset 路径")
-    parser.add_argument("--output", type=Path, required=True, help="保存路径")
+    parser.add_argument("--input", type=Path, required=True, help=_t("HF dataset 路径"))
+    parser.add_argument("--output", type=Path, required=True, help=_t("保存路径"))
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda"],
-                        help="cpu / cuda")
-    parser.add_argument("--num-proc", type=int, default=4, help="datasets.map 并发")
+                        help=_t("cpu / cuda"))
+    parser.add_argument("--num-proc", type=int, default=4, help=_t("datasets.map 并发"))
     parser.add_argument("--slice", nargs=2, type=int, metavar=("START", "END"),
-                        help="裁剪 start end (闭开区间)")
+                        help=_t("裁剪 start end (闭开区间)"))
     parser.add_argument("--skip-cleaning", action="store_true", 
-                        help="跳过数据清洗步骤，保留所有样本（包括问题样本）")
+                        help=_t("跳过数据清洗步骤，保留所有样本（包括问题样本）"))
     args = parser.parse_args()
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
 
     # 下载 CampPlus 模型到本地
-    print("🔄 检查并下载 CampPlus 模型...")
+    print(_t("🔄 检查并下载 CampPlus 模型..."))
     download_campplus_model()
 
     ds = load_from_disk(str(args.input))
@@ -248,11 +328,11 @@ def main():
         start, end = args.slice
         ds = ds.select(range(start, end))
 
-    print(f"Loaded dataset: {len(ds)} examples")
+    print(_t("已加载数据集: {count} 条样本", count=len(ds)))
 
     # datasets.map 带 rank
     try:
-        print(f"🚀 开始提取 speech token，使用 {args.num_proc} 个进程...")
+        print(_t("🚀 开始提取 speech token，使用 {num_proc} 个进程...", num_proc=args.num_proc))
         ds_out = ds.map(
             lambda ex, rank=0: extract_speech_token(ex, rank=rank, device=args.device),
             with_rank=True,
@@ -260,18 +340,18 @@ def main():
             desc="Extracting tokens & embeddings",
             input_columns=["audio"],
         )
-        print(f"✅ Token 提取完成，共处理 {len(ds_out)} 个样本")
+        print(_t("✅ Token 提取完成，共处理 {count} 个样本", count=len(ds_out)))
     except Exception as e:
-        print(f"❌ Token 提取失败: {e}")
-        print("💡 建议:")
-        print("   1. 减少 --num-proc 参数值")
-        print("   2. 检查 GPU 内存是否充足")
-        print("   3. 检查输入数据格式是否正确")
+        print(_t("❌ Token 提取失败: {error}", error=e))
+        print(_t("💡 建议:"))
+        print(_t("   1. 减少 --num-proc 参数值"))
+        print(_t("   2. 检查 GPU 内存是否充足"))
+        print(_t("   3. 检查输入数据格式是否正确"))
         raise
 
     # 清洗数据：过滤掉问题样本
     if not args.skip_cleaning:
-        print(f"🧹 开始清洗数据，过滤问题样本...")
+        print(_t("🧹 开始清洗数据，过滤问题样本..."))
         original_count = len(ds_out)
         
         # 统计各类问题样本
@@ -336,28 +416,28 @@ def main():
         cleaned_count = len(ds_clean)
         filtered_count = original_count - cleaned_count
         
-        print(f"📊 数据清洗完成:")
-        print(f"   • 原始样本数: {original_count}")
-        print(f"   • 有效样本数: {cleaned_count}")
-        print(f"   • 过滤样本数: {filtered_count} ({filtered_count/original_count*100:.1f}%)")
+        print(_t("📊 数据清洗完成:"))
+        print(_t("   • 原始样本数: {count}", count=original_count))
+        print(_t("   • 有效样本数: {count}", count=cleaned_count))
+        print(_t("   • 过滤样本数: {count} ({ratio:.1f}%)", count=filtered_count, ratio=filtered_count/original_count*100))
         
         if filtered_count > 0:
-            print(f"🔍 问题样本统计:")
+            print(_t("🔍 问题样本统计:"))
             for problem_type, count in stats.items():
                 if count > 0:
-                    print(f"   • {problem_type}: {count} 个")
+                    print(_t("   • {problem_type}: {count} 个", problem_type=problem_type, count=count))
         
         if cleaned_count == 0:
-            print("❌ 清洗后没有有效样本，请检查输入数据和处理逻辑")
+            print(_t("❌ 清洗后没有有效样本，请检查输入数据和处理逻辑"))
             return
     else:
-        print("⚠️ 跳过数据清洗步骤，保留所有样本（包括问题样本）")
+        print(_t("⚠️ 跳过数据清洗步骤，保留所有样本（包括问题样本）"))
         ds_clean = ds_out
         cleaned_count = len(ds_out)
 
     # 数据质量统计
     if cleaned_count > 0:
-        print(f"📈 数据质量统计:")
+        print(_t("📈 数据质量统计:"))
         try:
             # 随机采样一些样本进行统计
             sample_size = min(100, cleaned_count)
@@ -366,21 +446,31 @@ def main():
             token_lengths = [len(ex["speech_token"]) for ex in sample_ds]
             feat_lengths = [ex["speech_feat_len"] for ex in sample_ds]
             
-            print(f"   • Token 长度: 平均 {sum(token_lengths)/len(token_lengths):.1f}, "
-                  f"范围 [{min(token_lengths)}, {max(token_lengths)}]")
-            print(f"   • Speech feat 长度: 平均 {sum(feat_lengths)/len(feat_lengths):.1f}, "
-                  f"范围 [{min(feat_lengths)}, {max(feat_lengths)}]")
-            print(f"   • Embedding 维度: {len(sample_ds[0]['embedding'])}")
+            print(_t(
+                "   • Token 长度: 平均 {avg:.1f}, 范围 [{min}, {max}]",
+                avg=sum(token_lengths)/len(token_lengths),
+                min=min(token_lengths),
+                max=max(token_lengths),
+            ))
+            print(_t(
+                "   • Speech feat 长度: 平均 {avg:.1f}, 范围 [{min}, {max}]",
+                avg=sum(feat_lengths)/len(feat_lengths),
+                min=min(feat_lengths),
+                max=max(feat_lengths),
+            ))
+            print(_t("   • Embedding 维度: {dim}", dim=len(sample_ds[0]['embedding'])))
         except Exception as e:
-            print(f"   ⚠️ 统计信息计算失败: {e}")
+            print(_t("   ⚠️ 统计信息计算失败: {error}", error=e))
 
     try:
-        print(f"💾 保存{'清洗后的' if not args.skip_cleaning else ''}数据集到: {args.output}")
+        suffix = _t("清洗后的") if not args.skip_cleaning else ""
+        print(_t("💾 保存{suffix}数据集到: {path}", suffix=suffix, path=args.output))
         ds_clean.save_to_disk(str(args.output))
-        print(f"step 5/5: ✅ All Finished! processed dataset → {args.output}")
-        print(f"📈 最终保存 {cleaned_count} 个{'有效' if not args.skip_cleaning else ''}样本")
+        print(_t("step 5/5: ✅ 全部完成！处理后的数据集 -> {path}", path=args.output))
+        suffix = _t("清洗后的") if not args.skip_cleaning else ""
+        print(_t("📈 最终保存 {count} 个{suffix}样本", count=cleaned_count, suffix=suffix))
     except Exception as e:
-        print(f"❌ 保存数据集失败: {e}")
+        print(_t("❌ 保存数据集失败: {error}", error=e))
         raise
 
 if __name__ == "__main__":

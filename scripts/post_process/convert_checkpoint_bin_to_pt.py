@@ -13,11 +13,50 @@
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Dict, Any
 
 import torch
+
+_TRANSLATIONS = {
+    "将 pytorch_model.bin 转换为 model.pt（默认 bf16）": {
+        "en": "Convert pytorch_model.bin to model.pt (default bf16)"
+    },
+    "pytorch_model.bin 文件路径": {"en": "pytorch_model.bin file path"},
+    "输出 model.pt 路径（默认与输入同目录）": {"en": "Output model.pt path (default: same dir)"},
+    "保持原始 dtype，不转换为 bf16": {"en": "Keep original dtype, do not convert to bf16"},
+    "❌ 输入文件不存在: {path}": {"en": "❌ Input file not found: {path}"},
+    "⚠️ 输入文件名不是 pytorch_model.bin: {name}": {
+        "en": "⚠️ Input filename is not pytorch_model.bin: {name}"
+    },
+    "❌ 检测到分片权重（pytorch_model.bin.index.json），请先合并后再转换": {
+        "en": "❌ Detected sharded weights (pytorch_model.bin.index.json); merge before converting"
+    },
+    "📥 正在加载权重: {path}": {"en": "📥 Loading weights: {path}"},
+    "❌ 权重文件格式不符合预期（需要 state_dict 字典）": {
+        "en": "❌ Weight file format invalid (expected state_dict dict)"
+    },
+    "ℹ️ 保持原始 dtype，不执行 bf16 转换": {"en": "ℹ️ Keeping original dtype, skipping bf16 conversion"},
+    "✅ 已将可转换的浮点张量转为 bf16": {"en": "✅ Converted float tensors to bf16"},
+    "🎉 转换完成: {path}": {"en": "🎉 Conversion completed: {path}"},
+    "❌ 转换失败: {error}": {"en": "❌ Conversion failed: {error}"},
+}
+
+
+def _t(text: str, **kwargs: Any) -> str:
+    lang = os.getenv("HYDRAVOX_LANG", os.getenv("HYDRAVOX_UI_LANG", "zh")).lower()
+    if lang not in ("zh", "en"):
+        lang = "zh"
+    entry = _TRANSLATIONS.get(text)
+    result = entry.get(lang, text) if entry else text
+    if kwargs:
+        try:
+            return result.format(**kwargs)
+        except Exception:
+            return result
+    return result
 
 
 def convert_state_dict_to_bf16(state_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -58,7 +97,7 @@ def normalize_state_dict(state_dict: Dict[str, Any]) -> Dict[str, Any]:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="将 pytorch_model.bin 转换为 model.pt（默认 bf16）",
+        description=_t("将 pytorch_model.bin 转换为 model.pt（默认 bf16）"),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -66,58 +105,58 @@ def main():
         "--input",
         type=str,
         default="cv3_llm_multihead_pretrain/checkpoint-10000/pytorch_model.bin",
-        help="pytorch_model.bin 文件路径",
+        help=_t("pytorch_model.bin 文件路径"),
     )
     parser.add_argument(
         "-o",
         "--output",
         type=str,
-        help="输出 model.pt 路径（默认与输入同目录）",
+        help=_t("输出 model.pt 路径（默认与输入同目录）"),
     )
     parser.add_argument(
         "--keep-dtype",
         action="store_true",
-        help="保持原始 dtype，不转换为 bf16",
+        help=_t("保持原始 dtype，不转换为 bf16"),
     )
 
     args = parser.parse_args()
 
     input_path = Path(args.input)
     if not input_path.exists():
-        print(f"❌ 输入文件不存在: {input_path}")
+        print(_t("❌ 输入文件不存在: {path}", path=input_path))
         sys.exit(1)
 
     if input_path.name != "pytorch_model.bin":
-        print(f"⚠️ 输入文件名不是 pytorch_model.bin: {input_path.name}")
+        print(_t("⚠️ 输入文件名不是 pytorch_model.bin: {name}", name=input_path.name))
 
     index_file = input_path.with_name("pytorch_model.bin.index.json")
     if index_file.exists():
-        print("❌ 检测到分片权重（pytorch_model.bin.index.json），请先合并后再转换")
+        print(_t("❌ 检测到分片权重（pytorch_model.bin.index.json），请先合并后再转换"))
         sys.exit(1)
 
     output_path = Path(args.output) if args.output else input_path.parent / "model.pt"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        print(f"📥 正在加载权重: {input_path}")
+        print(_t("📥 正在加载权重: {path}", path=input_path))
         state = torch.load(str(input_path), map_location="cpu")
         if not isinstance(state, dict):
-            print("❌ 权重文件格式不符合预期（需要 state_dict 字典）")
+            print(_t("❌ 权重文件格式不符合预期（需要 state_dict 字典）"))
             sys.exit(1)
 
         state = normalize_state_dict(state)
 
         if args.keep_dtype:
             converted = state
-            print("ℹ️ 保持原始 dtype，不执行 bf16 转换")
+            print(_t("ℹ️ 保持原始 dtype，不执行 bf16 转换"))
         else:
             converted = convert_state_dict_to_bf16(state)
-            print("✅ 已将可转换的浮点张量转为 bf16")
+            print(_t("✅ 已将可转换的浮点张量转为 bf16"))
 
         torch.save(converted, str(output_path))
-        print(f"🎉 转换完成: {output_path}")
+        print(_t("🎉 转换完成: {path}", path=output_path))
     except Exception as exc:
-        print(f"❌ 转换失败: {exc}")
+        print(_t("❌ 转换失败: {error}", error=exc))
         sys.exit(1)
 
 
