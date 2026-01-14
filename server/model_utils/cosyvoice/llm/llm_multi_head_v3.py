@@ -654,6 +654,14 @@ class CosyVoice3LM(Qwen2LM):
         # multi-head training blocks (MTP + per-head decoders)
         self.head_num = head_num
         self.inference_head_num = inference_head_num
+        # Cross-head attention to let parallel heads exchange information.
+        cross_head_attn_heads = mtp_head_num if llm_output_size % mtp_head_num == 0 else 1
+        self.cross_head_ln = nn.LayerNorm(llm_output_size, eps=1e-5)
+        self.cross_head_attn = nn.MultiheadAttention(
+            embed_dim=llm_output_size,
+            num_heads=cross_head_attn_heads,
+            batch_first=True,
+        )
         self.mtp_block = nn.ModuleList([
             Qwen2DecoderLayer(
                 Qwen2Config(
@@ -763,6 +771,18 @@ class CosyVoice3LM(Qwen2LM):
 
         return lm_target_per_head_batch, lm_input, lm_input_len
 
+    def _cross_head_fuse(self, head_states: torch.Tensor) -> torch.Tensor:
+        """Cross-head attention with pre-norm + residual on head dimension.
+
+        Args:
+            head_states: (B, K, H) where K is head_num.
+        Returns:
+            (B, K, H) fused head states.
+        """
+        normed = self.cross_head_ln(head_states)
+        fused, _ = self.cross_head_attn(normed, normed, normed, need_weights=False)
+        return head_states + fused
+
     def forward(
             self,
             batch: dict,
@@ -808,7 +828,13 @@ class CosyVoice3LM(Qwen2LM):
         # 4. run lm forward
         lm_output, lm_output_mask = self.llm(lm_input, lm_input_len.to(device))
         mtp_output = [self.mtp_block[i](lm_output.transpose(0, 1))[0].transpose(0, 1) for i in range(self.head_num)]
-        logits = [self.llm_decoder(mtp_output[i]) for i in range(self.head_num)]
+        # Cross-head attention over all time steps.
+        head_states = torch.stack(mtp_output, dim=1)  # (B, K, L, H)
+        b, k, l, h = head_states.shape
+        head_states = head_states.permute(0, 2, 1, 3).reshape(b * l, k, h)
+        head_states = self._cross_head_fuse(head_states)
+        head_states = head_states.reshape(b, l, k, h).permute(0, 2, 1, 3)
+        logits = [self.llm_decoder(head_states[:, i]) for i in range(self.head_num)]
 
         for i in range(self.head_num):
             assert logits[i].shape[:2] == lm_target_per_head_batch[i].shape, \
@@ -885,7 +911,12 @@ class CosyVoice3LM(Qwen2LM):
                 # NOTE: inference is typically batch=1; keep implementation robust anyway.
                 last_hidden = y_pred[:, -1, :].unsqueeze(1)  # (B, 1, H)
                 mtp_output = [self.mtp_block[j](last_hidden)[0] for j in range(head_k)]
-                logps = [self.llm_decoder(mtp_output[j][:, -1]).log_softmax(dim=-1) for j in range(head_k)]
+                head_states = torch.cat([o[:, -1:, :] for o in mtp_output], dim=1)  # (B, K, H)
+                head_states = self._cross_head_fuse(head_states)
+                logps = [
+                    self.llm_decoder(head_states[:, j]).log_softmax(dim=-1)
+                    for j in range(head_k)
+                ]
 
                 # Sample all heads against the same history snapshot (matches `llm_multi_head.py` behavior).
                 decoded_snapshot = list(out_tokens)
