@@ -1103,7 +1103,7 @@ def update_precision_options(model_type: str):
 
 def create_training_tab():
     """创建训练tab界面"""
-    with gr.Tab(t("🚀 模型训练")):
+    with gr.Tab(t("🚀 模型训练")) as tab:
         title_md = gr.Markdown(t("### TTS 模型训练"))
         # 设备默认值
         device_default, proc_default, device_detail = _auto_detect_device_and_processes()
@@ -1474,6 +1474,7 @@ def create_training_tab():
             )
 
             return [
+                gr.update(label=t("🚀 模型训练")),
                 gr.update(value=t("### TTS 模型训练")),
                 gr.update(value=t("#### 1. 数据集配置")),
                 gr.update(value=t("#### 2. 模型配置")),
@@ -1532,6 +1533,7 @@ def create_training_tab():
 
         return {
             "outputs": [
+                tab,
                 title_md,
                 dataset_title_md,
                 model_title_md,

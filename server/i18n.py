@@ -100,12 +100,12 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
 }
 
 
-def t(text: str, **kwargs: Any) -> str:
+def t(key: str, **kwargs: Any) -> str:
     lang = os.getenv("HYDRAVOX_API_LANG", os.getenv("HYDRAVOX_UI_LANG", "zh")).lower()
     if lang not in ("zh", "en"):
         lang = "zh"
-    entry = _TRANSLATIONS.get(text)
-    result = entry.get(lang, text) if entry else text
+    entry = _TRANSLATIONS.get(key)
+    result = entry.get(lang, key) if entry else key
     if kwargs:
         try:
             return result.format(**kwargs)

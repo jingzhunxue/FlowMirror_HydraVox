@@ -266,7 +266,7 @@ def _compute_mean_embedding_from_dataset(ds_path: str) -> Tuple[Any, torch.Tenso
 
 
 def create_speaker_manage_tab():
-    with gr.Tab(t("🗣️ 说话人管理")):
+    with gr.Tab(t("🗣️ 说话人管理")) as tab:
         intro_md = gr.Markdown(
             "\n".join(
                 [
@@ -366,6 +366,7 @@ def create_speaker_manage_tab():
 
         def _apply_language():
             return [
+                gr.update(label=t("🗣️ 说话人管理")),
                 gr.update(value="\n".join(
                     [
                         t("# 🗣️ 说话人库管理"),
@@ -388,6 +389,7 @@ def create_speaker_manage_tab():
 
         return {
             "outputs": [
+                tab,
                 intro_md,
                 spk_path_tb,
                 reload_btn,
