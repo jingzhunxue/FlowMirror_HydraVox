@@ -682,6 +682,7 @@ class CosyVoice3LM(Qwen2LM):
         # 5. vllm related
         self.stop_token_ids = [speech_token_size + i for i in range(200)]
         self.vllm_output_queue = {}
+        self.vllm_output_offset = {}
 
         if freeze_embedding:
             self.speech_embedding.weight.requires_grad = False
@@ -838,26 +839,37 @@ class CosyVoice3LM(Qwen2LM):
             with self.lock:
                 self.vllm.add_request(uuid, {"prompt_embeds": lm_input.squeeze(0).to(torch.bfloat16).to(lm_input.device)}, sampling_params)
                 self.vllm_output_queue[uuid] = queue.Queue()
+                self.vllm_output_offset[uuid] = 0
             out_tokens = []
+            stop = False
             while True:
                 with self.lock:
                     if self.vllm_output_queue[uuid].empty() is True:
                         request_outputs: List[RequestOutput] = self.vllm.step()
                         for request_output in request_outputs:
-                            top_ids = list(request_output.outputs[0].token_ids)[-1]
-                            self.vllm_output_queue[request_output.request_id].put(top_ids)
-                if self.vllm_output_queue[uuid].empty() is False:
+                            token_ids = list(request_output.outputs[0].token_ids)
+                            offset = self.vllm_output_offset.get(request_output.request_id, 0)
+                            if offset < len(token_ids):
+                                for token_id in token_ids[offset:]:
+                                    self.vllm_output_queue[request_output.request_id].put(token_id)
+                                self.vllm_output_offset[request_output.request_id] = len(token_ids)
+                while self.vllm_output_queue[uuid].empty() is False:
                     top_ids = self.vllm_output_queue[uuid].get()
                     if top_ids in self.stop_token_ids:
+                        stop = True
                         break
                     # in stream mode, yield token one by one
                     yield top_ids
                     out_tokens.append(top_ids)
                     if len(out_tokens) == max_len:
+                        stop = True
                         break
+                if stop:
+                    break
                 time.sleep(0.001)
             with self.lock:
                 self.vllm_output_queue.pop(uuid)
+                self.vllm_output_offset.pop(uuid, None)
         else:
             # Multi-head decode: generate multiple tokens (default 5) per LLM step.
             # We follow the same idea as `llm_multi_head.py` inference: each step runs the base LLM once,
