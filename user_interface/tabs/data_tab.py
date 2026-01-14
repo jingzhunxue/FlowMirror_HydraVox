@@ -800,7 +800,7 @@ def run_stage4_merge(input_dirs_text: str, output_dir: str):
 
 def create_data_tab():
     """创建数据处理tab界面"""
-    with gr.Tab(t("📊 数据处理")):
+    with gr.Tab(t("📊 数据处理")) as tab:
         intro_md = gr.Markdown(_build_data_intro_md())
         
         device_default, proc_default, device_detail = _auto_detect_device_and_processes()
@@ -1087,6 +1087,7 @@ def create_data_tab():
         def _apply_language(device_value: str):
             _device_default, _proc_default, device_detail = _auto_detect_device_and_processes()
             return [
+                gr.update(label=t("📊 数据处理")),
                 gr.update(value=_build_data_intro_md()),
                 gr.update(label=t("🎵 阶段 1 - 格式转换与重采样")),
                 gr.update(value=t("**功能：** 将各种音频/视频格式统一转换为 16kHz WAV 格式")),
@@ -1154,6 +1155,7 @@ def create_data_tab():
 
         return {
             "outputs": [
+                tab,
                 intro_md,
                 stage1_acc,
                 stage1_desc,

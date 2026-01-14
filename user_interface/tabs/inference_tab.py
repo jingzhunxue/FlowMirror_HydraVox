@@ -462,14 +462,18 @@ def create_inference_tab():
                     lines=4,
                 )
                 
+                examples_title = gr.Markdown(t("示例"))
                 examples = gr.Examples(
                     examples=[
-                        t("今天天气很好，适合出去走走。"),
-                        t("欢迎使用 HydraVox,多头预测让语音更自然。"),
-                        t("请在提示框中输入你想要合成的文本内容。"),
+                        "今天天气很好，适合出去走走。",
+                        "The weather is great today. Perfect for a walk.",
+                        "欢迎使用 HydraVox,多头预测让语音更自然。",
+                        "Welcome to HydraVox. Multi-head prediction makes speech more natural.",
+                        "请在提示框中输入你想要合成的文本内容。",
+                        "Type the text you want to synthesize.",
                     ],
                     inputs=[single_text],
-                    label=t("示例")
+                    label="",
                 )
             
             with gr.Column(scale=1):
@@ -601,7 +605,7 @@ def create_inference_tab():
             ],
             outputs=audio_out,
         )
-        
+
         clear_btn.click(
             fn=clear_inputs,
             outputs=[single_text, audio_out, prompt_text, prompt_audio],
@@ -624,11 +628,13 @@ def create_inference_tab():
         speakers = get_speakers()
         sample_names = list(REFERENCE_SAMPLES.keys())
         return [
+            gr.update(label=t("🎤 语音合成")),
             gr.update(value=_build_inference_header()),
             gr.update(label=t("LLM 权重 (llm.pt)")),
             gr.update(label=t("Flow 权重 (flow.pt)")),
             gr.update(value=t("🔄 加载模型")),
             gr.update(label=t("输入文本"), placeholder=t("请输入要合成的文本...")),
+            gr.update(value=t("示例")),
             gr.update(
                 choices=[(t("预设说话人"), MODE_PRESET), (t("Zero-shot"), MODE_ZERO_SHOT)],
                 value=mode_value,
@@ -654,11 +660,13 @@ def create_inference_tab():
 
     return {
         "outputs": [
+            tab,
             header_md,
             llm_weight,
             flow_weight,
             load_pt_btn,
             single_text,
+            examples_title,
             synthesis_mode,
             synthesis_tip,
             preset_header,
