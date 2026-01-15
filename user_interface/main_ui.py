@@ -9,7 +9,7 @@ from pathlib import Path
 BACKEND = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 ASSETS_DIR = (Path(__file__).resolve().parent.parent / "assets").resolve()
 LOGO_IMG_PATH = (ASSETS_DIR / "HydraVox.png").resolve()
-LOGO_IMG_URL = f"/gradio_api/file={LOGO_IMG_PATH}"
+LOGO_IMG_URL = f"/file={LOGO_IMG_PATH}"
 gr.set_static_paths(paths=[ASSETS_DIR])
 
 def get_speakers() -> List[str]:
