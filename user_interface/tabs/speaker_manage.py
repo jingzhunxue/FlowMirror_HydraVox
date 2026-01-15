@@ -322,7 +322,7 @@ def create_speaker_manage_tab():
                 gr.Warning(render(save_msg))
             return save_msg
 
-        @with_i18n
+        # @with_i18n
         def _on_calc(ds_path: str):
             info, mean = _compute_mean_embedding_from_dataset(ds_path)
             return mean, info
