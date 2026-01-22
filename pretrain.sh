@@ -1,9 +1,13 @@
-accelerate launch --num_processes 6 scripts/train/train_llm_pretrain.py \
-  --train_data /home/ecs-user/nas_original_data/Emilia/emilia_audio_text_dataset \
-  --model_ckpt pretrained_models/Fun-CosyVoice3-0.5B/llm_multihead_init.pt \
+accelerate launch --num_processes 4 scripts/train/train_llm_pretrain.py \
+  --train_data /home/ecs-user/nas_training_data_local/HanxueTTS \
+  --model_ckpt llm_mtp.pt \
   --output_dir cv3_llm_multihead_pretrain \
-  --qwen_pretrain_path pretrained_models/Fun-CosyVoice3-0.5B/CosyVoice-BlankEN \
-  --tokenizer_onnx_path pretrained_models/Fun-CosyVoice3-0.5B/speech_tokenizer_v3.onnx \
-  --onnx_use_cuda \
-  --save_steps 10000 \
-  --save_total_limit 20 \
+  --qwen_pretrain_path FunAudioLLM/Fun-CosyVoice3-0.5B-2512/CosyVoice-BlankEN \
+  --tokenizer_onnx_path FunAudioLLM/Fun-CosyVoice3-0.5B-2512/speech_tokenizer_v3.onnx \
+  --onnx_use_cuda false\
+  --save_steps 2000 \
+  --save_total_limit 10 \
+  --config jzx-ai-lab/HydraVox-CV3/hydravox.yaml\
+  --per_device_train_batch_size 4\
+  --num_train_epochs 1\
+  --resume_from_checkpoint cv3_llm_multihead_pretrain/checkpoint-2000
