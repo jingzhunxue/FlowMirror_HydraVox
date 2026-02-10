@@ -115,13 +115,14 @@ logs/                    # train/infer logs
 ## Roadmap
 
 ...
-* 2026/01
-  - [ ] DeepSeek-style Multi-Token Prediction module for HydraVox to enable more powerful and stable inference
+* 2026/02
+  - [x] DeepSeek-style Multi-Token Prediction module for HydraVox to enable more powerful and stable inference
+  - [ ] Release streaming inference service to experience MTP's ultra-low first-frame latency (under 100ms)
   - [ ] Flow-matching core update introducing a TTS-tailored paradigm
 
 * [ ] 2025/12
   - [X] Release training UI tab and training scripts
-  - [ ] Release LoRA hot-load and inference with pretrained emotion LoRA
+  - [ ] ~~Release LoRA hot-load and inference with pretrained emotion LoRA~~
 ---
 
 ## Python API
