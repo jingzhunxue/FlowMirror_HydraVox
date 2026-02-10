@@ -20,6 +20,7 @@ class StreamingTTSRequest(BaseModel):
     text: str
     speaker_id: Optional[str] = None
     chunk_duration: int = 1  # 秒，必须是正整数
+    first_chunk_duration: Optional[float] = None
     extra_params: Optional[Dict[str, Any]] = {
         "top_p": 0.9,
         "top_k": 10,
@@ -43,6 +44,7 @@ class StreamingZeroShotRequest(BaseModel):
     prompt_text: str
     prompt_audio_base64: Optional[str] = None
     chunk_duration: int = 1
+    first_chunk_duration: Optional[float] = None 
     extra_params: Optional[Dict[str, Any]] = {
         "top_p": 0.9,
         "top_k": 10,
@@ -96,12 +98,19 @@ async def streaming_tts(request: Request, task: StreamingTTSRequest):
 
         chunk_size = task.chunk_duration * TOKENS_PER_SECOND
 
+        first_chunk_size = (
+            max(1, int(task.first_chunk_duration * TOKENS_PER_SECOND))
+            if task.first_chunk_duration is not None
+            else chunk_size
+        )
+
         streaming_task_queue.put({
             "id": str(uuid.uuid4()),
             "task_type": "streaming_tts",
             "text": task.text,
             "speaker_id": task.speaker_id,
             "chunk_size": chunk_size,
+            "first_chunk_size": first_chunk_size,
             "chunk_queue": chunk_queue,
             "extra_params": task.extra_params,
         })
@@ -146,6 +155,12 @@ async def streaming_zero_shot(request: Request, task: StreamingZeroShotRequest):
 
         chunk_size = task.chunk_duration * TOKENS_PER_SECOND
 
+        first_chunk_size = (
+            max(1, int(task.first_chunk_duration * TOKENS_PER_SECOND))
+            if task.first_chunk_duration is not None
+            else chunk_size
+        )
+
         streaming_task_queue.put({
             "id": str(uuid.uuid4()),
             "task_type": "streaming_zero_shot",
@@ -154,6 +169,7 @@ async def streaming_zero_shot(request: Request, task: StreamingZeroShotRequest):
             "prompt_audio": prompt_audio,
             "prompt_sample_rate": prompt_sample_rate,
             "chunk_size": chunk_size,
+            "first_chunk_size": first_chunk_size,
             "chunk_queue": chunk_queue,
             "extra_params": task.extra_params,
         })
