@@ -16,6 +16,10 @@ import queue
 import random
 import time
 import threading
+import os
+import io
+import cProfile
+import pstats
 from typing import Dict, Optional, Callable, List, Generator
 import numpy as np
 import torch
@@ -1084,6 +1088,135 @@ class CosyVoice3LM_MTPv2(Qwen2LM):
                 out[i, :l, :] = x
         return out
 
+    # -------------------------
+    # Profiling helpers (MTP inference)
+    # -------------------------
+    @staticmethod
+    def _mtp_profile_enabled() -> bool:
+        # Attribute-based toggle (preferred) + env var (quick toggle)
+        # - self.enable_cprofile_mtp: bool
+        # - COSYVOICE_MTP_CPROFILE=1
+        return bool(int(os.environ.get("COSYVOICE_MTP_CPROFILE", "0")))
+
+    @staticmethod
+    def _mtp_profile_output_dir() -> str:
+        # - COSYVOICE_MTP_CPROFILE_DIR=/path/to/dir
+        return os.environ.get("COSYVOICE_MTP_CPROFILE_DIR", "profiles/mtp")
+
+    def _mtp_profile_paths(self, uuid: str) -> tuple[str, str]:
+        safe_uuid = uuid if uuid else "no_uuid"
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        out_dir = self._mtp_profile_output_dir()
+        os.makedirs(out_dir, exist_ok=True)
+        base = os.path.join(out_dir, f"mtp_infer_{safe_uuid}_{ts}")
+        return base + ".pstats", base + ".txt"
+
+    def _mtp_profile_dump(self, prof: cProfile.Profile, uuid: str) -> None:
+        try:
+            pstats_path, txt_path = self._mtp_profile_paths(uuid)
+            prof.dump_stats(pstats_path)
+            s = io.StringIO()
+            stats = pstats.Stats(prof, stream=s).strip_dirs().sort_stats("tottime")
+            stats.print_stats(80)
+            with open(txt_path, "w", encoding="utf-8") as f:
+                f.write(s.getvalue())
+            logging.info("MTP cProfile saved: %s (pstats), %s (text)", pstats_path, txt_path)
+        except Exception as e:
+            logging.warning("MTP cProfile dump failed: %s", e)
+
+    # -------------------------
+    # MTP stage helpers (to make cProfile output readable)
+    # -------------------------
+    def _mtp_prime_llm_cache(self, lm_input: torch.Tensor) -> tuple[torch.Tensor, object, int, torch.Tensor]:
+        device = lm_input.device
+        total_len = int(lm_input.size(1))
+        attn_mask = torch.ones((1, 1, total_len), device=device, dtype=torch.bool)
+        main_hidden, cache = self.llm.forward_one_step(lm_input, masks=attn_mask, cache=None)
+        last_hidden = main_hidden[:, -1:, :]
+        return main_hidden, cache, total_len, last_hidden
+
+    def _mtp_sample_base(self, last_hidden: torch.Tensor, decoded_snapshot: List[int], sampling: int, min_len: int) -> int:
+        base_logp = self.llm_decoder(last_hidden[:, -1]).log_softmax(dim=-1)
+        ignore_eos = len(decoded_snapshot) < min_len
+        top_id = self.sampling_ids(base_logp.squeeze(dim=0), decoded_snapshot, sampling, ignore_eos=ignore_eos)
+        if isinstance(top_id, torch.Tensor):
+            return int(top_id.item())
+        return int(top_id)
+
+    def _mtp_build_token_hidden(
+        self,
+        prefix_emb: torch.Tensor,
+        speech_emb_all: Optional[torch.Tensor],
+        sampled_ids: List[int],
+        head_idx: int,
+        cur_len: int,
+        device: torch.device,
+        dtype: torch.dtype,
+        pad_vec: torch.Tensor,
+        prev_len: int,
+    ) -> torch.Tensor:
+        if cur_len == 0:
+            token_emb = torch.zeros(1, 0, self.llm_input_size, dtype=dtype, device=device)
+        else:
+            base_emb = None
+            if speech_emb_all is not None and head_idx < cur_len:
+                base_emb = speech_emb_all[head_idx:]
+            tail_needed = min(head_idx, cur_len)
+            tail_emb = None
+            if tail_needed > 0:
+                tail = sampled_ids[:tail_needed]
+                if len(tail) < tail_needed:
+                    tail = tail + [self.eos_token] * (tail_needed - len(tail))
+                tail_emb = self.speech_embedding.weight[
+                    torch.tensor(tail, device=device, dtype=torch.long)
+                ]
+            if base_emb is None and tail_emb is None:
+                token_emb = torch.zeros(1, 0, self.llm_input_size, dtype=dtype, device=device)
+            elif base_emb is None:
+                token_emb = tail_emb.unsqueeze(0)
+            elif tail_emb is None:
+                token_emb = base_emb.unsqueeze(0)
+            else:
+                token_emb = torch.cat([base_emb, tail_emb], dim=0).unsqueeze(0)
+
+        token_hidden = torch.cat([prefix_emb, token_emb], dim=1)
+        if token_hidden.size(1) < prev_len:
+            pad_len = prev_len - token_hidden.size(1)
+            token_hidden = torch.cat([token_hidden, pad_vec.view(1, 1, -1).expand(1, pad_len, -1)], dim=1)
+        elif token_hidden.size(1) > prev_len:
+            token_hidden = token_hidden[:, :prev_len, :]
+        return token_hidden
+
+    def _mtp_sample_head(
+        self,
+        mtp_hidden: torch.Tensor,
+        decoded_snapshot: List[int],
+        sampling: int,
+        min_len: int,
+        head_idx: int,
+    ) -> int:
+        logp = self.llm_decoder(mtp_hidden[:, -1]).log_softmax(dim=-1)
+        ignore_eos = (len(decoded_snapshot) + head_idx) < min_len
+        top_id = self.sampling_ids(logp.squeeze(dim=0), decoded_snapshot, sampling, ignore_eos=ignore_eos)
+        if isinstance(top_id, torch.Tensor):
+            return int(top_id.item())
+        return int(top_id)
+
+    def _mtp_append_and_step_llm(
+        self,
+        group_ids: List[int],
+        device: torch.device,
+        cache: object,
+        total_len: int,
+    ) -> tuple[torch.Tensor, object, int]:
+        token_embs = self.speech_embedding.weight[
+            torch.tensor(group_ids, device=device, dtype=torch.long)
+        ].unsqueeze(0)
+        total_len = total_len + int(token_embs.size(1))
+        attn_mask = torch.ones((1, 1, total_len), device=device, dtype=torch.bool)
+        new_hidden, cache = self.llm.forward_one_step(token_embs, masks=attn_mask, cache=cache)
+        return new_hidden, cache, total_len
+
     def prepare_lm_input_target(
         self,
         sos_emb: torch.Tensor,
@@ -1214,6 +1347,13 @@ class CosyVoice3LM_MTPv2(Qwen2LM):
         for head_idx in range(1, self.head_num):
             block_idx = head_idx - 1
             mtp_token_emb = lm_input_per_head_batch[head_idx].to(device)
+            # Align MTP token embeddings with main hidden sequence length.
+            if mtp_token_emb.size(1) < prev_hidden.size(1):
+                pad_len = prev_hidden.size(1) - mtp_token_emb.size(1)
+                pad_vec = self.speech_embedding.weight[self.eos_token].to(device).view(1, 1, -1)
+                mtp_token_emb = torch.cat([mtp_token_emb, pad_vec.expand(mtp_token_emb.size(0), pad_len, -1)], dim=1)
+            elif mtp_token_emb.size(1) > prev_hidden.size(1):
+                mtp_token_emb = mtp_token_emb[:, :prev_hidden.size(1), :]
             mtp_hidden = self.mtp_layer[block_idx](prev_hidden, mtp_token_emb)
             head_logits = self.llm_decoder(mtp_hidden)
             logits_per_head.append(head_logits)
@@ -1241,132 +1381,142 @@ class CosyVoice3LM_MTPv2(Qwen2LM):
 
     @torch.inference_mode()
     def inference_wrapper(self, lm_input, prefix_emb, prompt_speech_tokens, sampling, min_len, max_len, uuid):
-        if hasattr(self, 'vllm'):
-            from vllm import SamplingParams, RequestOutput
-            sampling_params = SamplingParams(top_k=sampling,
-                                             stop_token_ids=self.stop_token_ids,
-                                             min_tokens=min_len,
-                                             max_tokens=max_len)
-            with self.lock:
-                self.vllm.add_request(uuid, {"prompt_embeds": lm_input.squeeze(0).to(torch.bfloat16).to(lm_input.device)}, sampling_params)
-                self.vllm_output_queue[uuid] = queue.Queue()
-            out_tokens = []
-            while True:
+        prof: Optional[cProfile.Profile] = None
+        enable_cprofile = bool(getattr(self, "enable_cprofile_mtp", False)) or self._mtp_profile_enabled()
+        if enable_cprofile:
+            prof = cProfile.Profile()
+            prof.enable()
+        try:
+            if hasattr(self, 'vllm'):
+                from vllm import SamplingParams, RequestOutput
+                sampling_params = SamplingParams(top_k=sampling,
+                                                stop_token_ids=self.stop_token_ids,
+                                                min_tokens=min_len,
+                                                max_tokens=max_len)
                 with self.lock:
-                    if self.vllm_output_queue[uuid].empty() is True:
-                        request_outputs: List[RequestOutput] = self.vllm.step()
-                        for request_output in request_outputs:
-                            top_ids = list(request_output.outputs[0].token_ids)[-1]
-                            self.vllm_output_queue[request_output.request_id].put(top_ids)
-                if self.vllm_output_queue[uuid].empty() is False:
-                    top_ids = self.vllm_output_queue[uuid].get()
-                    if top_ids in self.stop_token_ids:
-                        break
-                    yield top_ids
-                    out_tokens.append(top_ids)
-                    if len(out_tokens) == max_len:
-                        break
-                time.sleep(0.001)
-            with self.lock:
-                self.vllm_output_queue.pop(uuid)
-            return
+                    self.vllm.add_request(uuid, {"prompt_embeds": lm_input.squeeze(0).to(torch.bfloat16).to(lm_input.device)}, sampling_params)
+                    self.vllm_output_queue[uuid] = queue.Queue()
+                out_tokens = []
+                while True:
+                    with self.lock:
+                        if self.vllm_output_queue[uuid].empty() is True:
+                            request_outputs: List[RequestOutput] = self.vllm.step()
+                            for request_output in request_outputs:
+                                top_ids = list(request_output.outputs[0].token_ids)[-1]
+                                self.vllm_output_queue[request_output.request_id].put(top_ids)
+                    if self.vllm_output_queue[uuid].empty() is False:
+                        top_ids = self.vllm_output_queue[uuid].get()
+                        if top_ids in self.stop_token_ids:
+                            break
+                        if prof is not None:
+                            prof.disable()
+                        yield top_ids
+                        if prof is not None:
+                            prof.enable()
+                        out_tokens.append(top_ids)
+                        if len(out_tokens) == max_len:
+                            break
+                    time.sleep(0.001)
+                with self.lock:
+                    self.vllm_output_queue.pop(uuid)
+                return
 
-        out_tokens: List[int] = []
-        head_k = int(min(getattr(self, "inference_head_num", 1), getattr(self, "head_num", 1)))
-        if head_k <= 0:
-            head_k = 1
+            out_tokens: List[int] = []
+            head_k = int(min(getattr(self, "inference_head_num", 1), getattr(self, "head_num", 1)))
+            
+            if head_k <= 0:
+                head_k = 1
 
-        speech_tokens: List[int] = list(prompt_speech_tokens)
-        prefix_len = prefix_emb.size(1)
+            enable_tps_log = bool(getattr(self, "enable_tps_log", False))
+            token_count = 0
+            start_time = time.time() if enable_tps_log else None
 
-        while len(out_tokens) < max_len:
-            y_pred, _ = self.llm.forward_one_step(
-                lm_input,
-                masks=torch.tril(
-                    torch.ones(
-                        (1, lm_input.shape[1], lm_input.shape[1]),
-                        device=lm_input.device,
-                    )
-                ).to(torch.bool),
-                cache=None,
-            )
-
-            decoded_snapshot = list(out_tokens)
-            sampled_ids: List[int] = []
-
-            base_logp = self.llm_decoder(y_pred[:, -1]).log_softmax(dim=-1)
-            ignore_eos = len(decoded_snapshot) < min_len
-            top_id = self.sampling_ids(base_logp.squeeze(dim=0), decoded_snapshot, sampling, ignore_eos=ignore_eos)
-            if isinstance(top_id, torch.Tensor):
-                top_id = int(top_id.item())
+            device = lm_input.device
+            speech_tokens: List[int] = list(prompt_speech_tokens)
+            if len(speech_tokens) > 0:
+                speech_emb_all = self.speech_embedding.weight[
+                    torch.tensor(speech_tokens, device=device, dtype=torch.long)
+                ]
             else:
-                top_id = int(top_id)
-            sampled_ids.append(top_id)
+                speech_emb_all = None
+            pad_vec = self.speech_embedding.weight[self.eos_token].to(device)
 
-            prev_hidden = y_pred
-            for head_idx in range(1, head_k):
-                cur_len = len(speech_tokens)
-                if cur_len == 0:
-                    shifted_tokens = []
-                else:
-                    if cur_len > head_idx:
-                        shifted_tokens = speech_tokens[head_idx:]
+            # Prime the base LLM once on the full prefix to initialize KV cache.
+            main_hidden, cache, total_len, last_hidden = self._mtp_prime_llm_cache(lm_input)
+
+            while len(out_tokens) < max_len:
+                decoded_snapshot = list(out_tokens)
+                sampled_ids: List[int] = []
+
+                sampled_ids.append(self._mtp_sample_base(last_hidden, decoded_snapshot, sampling, min_len))
+
+                prev_hidden = main_hidden
+                for head_idx in range(1, head_k):
+                    cur_len = len(speech_tokens)
+                    token_hidden = self._mtp_build_token_hidden(
+                        prefix_emb=prefix_emb,
+                        speech_emb_all=speech_emb_all,
+                        sampled_ids=sampled_ids,
+                        head_idx=head_idx,
+                        cur_len=cur_len,
+                        device=device,
+                        dtype=lm_input.dtype,
+                        pad_vec=pad_vec,
+                        prev_len=int(prev_hidden.size(1)),
+                    )
+
+                    mtp_hidden = self.mtp_layer[head_idx - 1](prev_hidden, token_hidden)
+                    sampled_ids.append(self._mtp_sample_head(mtp_hidden, decoded_snapshot, sampling, min_len, head_idx))
+                    prev_hidden = mtp_hidden
+
+                group_ids: List[int] = []
+                stop = False
+                for top_id in sampled_ids:
+                    if top_id in self.stop_token_ids:
+                        stop = True
+                        break
+                    if prof is not None:
+                        prof.disable()
+                    yield top_id
+                    if prof is not None:
+                        prof.enable()
+                    if enable_tps_log:
+                        token_count += 1
+                    out_tokens.append(top_id)
+                    speech_tokens.append(top_id)
+                    if speech_emb_all is None:
+                        speech_emb_all = self.speech_embedding.weight[
+                            torch.tensor([top_id], device=device, dtype=torch.long)
+                        ]
                     else:
-                        shifted_tokens = []
-                    needed = cur_len - len(shifted_tokens)
-                    if needed > 0:
-                        tail = sampled_ids[:needed]
-                        if len(tail) < needed:
-                            tail = tail + [self.eos_token] * (needed - len(tail))
-                        shifted_tokens = shifted_tokens + tail
+                        speech_emb_all = torch.cat(
+                            [
+                                speech_emb_all,
+                                self.speech_embedding.weight[
+                                    torch.tensor([top_id], device=device, dtype=torch.long)
+                                ],
+                            ],
+                            dim=0,
+                        )
+                    group_ids.append(top_id)
+                    if len(out_tokens) >= max_len:
+                        stop = True
+                        break
 
-                if len(shifted_tokens) > 0:
-                    token_emb = self.speech_embedding(
-                        torch.tensor(shifted_tokens, device=lm_input.device, dtype=torch.long)
-                    ).unsqueeze(0)
-                else:
-                    token_emb = torch.zeros(1, 0, self.llm_input_size, dtype=lm_input.dtype, device=lm_input.device)
-
-                token_hidden = torch.cat([prefix_emb, token_emb], dim=1)
-                if token_hidden.size(1) < prev_hidden.size(1):
-                    pad_len = prev_hidden.size(1) - token_hidden.size(1)
-                    pad_vec = self.speech_embedding.weight[self.eos_token].to(lm_input.device).view(1, 1, -1)
-                    token_hidden = torch.cat([token_hidden, pad_vec.expand(1, pad_len, -1)], dim=1)
-                elif token_hidden.size(1) > prev_hidden.size(1):
-                    token_hidden = token_hidden[:, :prev_hidden.size(1), :]
-
-                mtp_hidden = self.mtp_layer[head_idx - 1](prev_hidden, token_hidden)
-                logp = self.llm_decoder(mtp_hidden[:, -1]).log_softmax(dim=-1)
-                ignore_eos = (len(decoded_snapshot) + head_idx) < min_len
-                top_id = self.sampling_ids(logp.squeeze(dim=0), decoded_snapshot, sampling, ignore_eos=ignore_eos)
-                if isinstance(top_id, torch.Tensor):
-                    top_id = int(top_id.item())
-                else:
-                    top_id = int(top_id)
-                sampled_ids.append(top_id)
-                prev_hidden = mtp_hidden
-
-            group_ids: List[int] = []
-            stop = False
-            for top_id in sampled_ids:
-                if top_id in self.stop_token_ids:
-                    stop = True
-                    break
-                yield top_id
-                out_tokens.append(top_id)
-                speech_tokens.append(top_id)
-                group_ids.append(top_id)
-                if len(out_tokens) >= max_len:
-                    stop = True
+                if stop or len(group_ids) == 0:
                     break
 
-            if stop or len(group_ids) == 0:
-                break
+                new_hidden, cache, total_len = self._mtp_append_and_step_llm(group_ids, device, cache, total_len)
+                main_hidden = torch.cat([main_hidden, new_hidden], dim=1)
+                last_hidden = new_hidden[:, -1:, :]
 
-            token_embs = self.speech_embedding.weight[
-                torch.tensor(group_ids, device=lm_input.device, dtype=torch.long)
-            ].unsqueeze(0)
-            lm_input = torch.cat([lm_input, token_embs], dim=1)
+            if enable_tps_log and token_count > 0:
+                elapsed = max(time.time() - start_time, 1e-6)
+                logging.info("MTP inference completed, tokens=%d, tps=%.2f", token_count, token_count / elapsed)
+        finally:
+            if prof is not None:
+                prof.disable()
+                self._mtp_profile_dump(prof, uuid)
 
     @torch.inference_mode()
     def inference(
