@@ -117,7 +117,7 @@ logs/                    # train/infer logs
 ...
 * 2026/02
   - [x] DeepSeek-style Multi-Token Prediction module for HydraVox to enable more powerful and stable inference
-  - [ ] Release streaming inference service to experience MTP's ultra-low first-frame latency (under 100ms)
+  - [ ] Release streaming inference service to experience MTP's ultra-low first-frame latency (under 300ms)
   - [ ] Flow-matching core update introducing a TTS-tailored paradigm
 
 * [ ] 2025/12
