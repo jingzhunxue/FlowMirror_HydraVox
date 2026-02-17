@@ -5,7 +5,7 @@ import os
 import sys
 import time
 import logging
-import random
+import numpy as np
 import torch
 import torch.nn.functional as F
 import torchaudio
@@ -260,196 +260,6 @@ class ModelManager:
 # 文本分割和合并逻辑
 # ============================================================================
 
-def split_text_by_punctuation(text: str, max_length: int = 50, min_length: int = 10) -> list:
-    """
-    基于标点符号分割文本，避免过短片段
-    
-    Args:
-        text: 输入文本
-        max_length: 触发分割的最大长度
-        min_length: 最小片段长度，小于此长度的片段会与前一个合并
-        
-    Returns:
-        分割后的文本片段列表
-    """
-    if len(text) <= max_length:
-        return [text]
-    
-    # 中文标点符号
-    punctuation_marks = ['。', '！', '？', '；', '，', '、', '.', '!', '?', ';', ',']
-    
-    segments = []
-    current_segment = ""
-    
-    # 按字符遍历，寻找标点符号
-    for i, char in enumerate(text):
-        current_segment += char
-        
-        # 如果遇到标点符号，考虑分割
-        if char in punctuation_marks:
-            # 如果当前片段长度合适，进行分割
-            if len(current_segment) >= min_length:
-                segments.append(current_segment)
-                current_segment = ""
-            # 否则继续累积（不分割）
-    
-    # 处理最后一个片段
-    if current_segment:
-        # 如果最后一个片段太短且前面有片段，则合并
-        if len(current_segment) < min_length and segments:
-            segments[-1] += current_segment
-        else:
-            segments.append(current_segment)
-    
-    # 如果没有找到合适的标点分割，按长度强制分割
-    if not segments:
-        segments = [text]
-    elif len(segments) == 1 and len(segments[0]) > max_length:
-        # 如果分割后仍然太长，按长度强制分割
-        segments = []
-        for i in range(0, len(text), max_length):
-            segment = text[i:i + max_length]
-            if segment:
-                segments.append(segment)
-    
-    return segments
-
-
-def merge_short_segments(segments: list, min_length: int = 5) -> list:
-    """
-    合并过短的片段
-    
-    Args:
-        segments: 文本片段列表
-        min_length: 最小片段长度
-        
-    Returns:
-        合并后的片段列表
-    """
-    if not segments:
-        return segments
-    
-    merged_segments = []
-    current_segment = segments[0]
-    
-    for i in range(1, len(segments)):
-        next_segment = segments[i]
-        
-        # 如果当前片段太短，与下一个片段合并
-        if len(current_segment) < min_length:
-            current_segment += next_segment
-        else:
-            # 当前片段长度合适，保存并开始新片段
-            merged_segments.append(current_segment)
-            current_segment = next_segment
-    
-    # 处理最后一个片段
-    if current_segment:
-        # 如果最后一个片段太短且前面有片段，则合并
-        if len(current_segment) < min_length and merged_segments:
-            merged_segments[-1] += current_segment
-        else:
-            merged_segments.append(current_segment)
-    
-    return merged_segments
-
-
-def inference_tts_with_segmentation(model_manager, text: str, spk_id: str, max_length: int = 30, min_length: int = 10, last_prompt: bool = True, speed: float = 1.0) -> torch.Tensor:
-    """
-    带文本分割的TTS推理
-    第一段使用speaker做正常TTS，后续段落使用上一个片段作为提示进行zero shot合成
-    
-    Args:
-        text: 输入文本
-        spk_id: 说话人ID
-        max_length: 触发分割的最大长度
-        min_length: 最小片段长度
-        last_prompt: 是否使用上一段音频作为zero shot提示，False时全部使用speaker TTS
-        
-    Returns:
-        合成的音频tensor
-    """
-    # 分割文本
-    segments = split_text_by_punctuation(text, max_length, min_length)
-    segments = merge_short_segments(segments, min_length)
-    
-    logger.info(t("文本分割为 {count} 个片段:", count=len(segments)))
-    for i, segment in enumerate(segments):
-        logger.info(t("片段 {index}: {segment}", index=i + 1, segment=segment))
-    
-    if len(segments) == 1:
-        # 只有一个片段，直接推理
-        return inference_tts(model_manager, text, spk_id, speed=speed)
-    
-    # 多个片段处理
-    audio_segments = []
-    prev_segment_text = None
-    prev_segment_audio = None
-    
-    for i, segment in enumerate(segments):
-        logger.info(t("正在合成片段 {index}/{total}: {segment}", index=i + 1, total=len(segments), segment=segment))
-        try:
-            if i == 0 or not last_prompt:
-                # 第一段或禁用last_prompt时：使用speaker做正常TTS
-                logger.info(t("第{index}段使用TTS合成", index=i + 1))
-                segment_audio = inference_tts(model_manager, segment, spk_id, speed=speed)
-                prev_segment_text = segment
-                prev_segment_audio = segment_audio
-                audio_segments.append(segment_audio)
-            else:
-                # 后续段且启用last_prompt：使用上一个片段作为提示进行zero shot合成
-                logger.info(t("第{index}段使用zero shot合成，以第{prev_index}段为提示", index=i + 1, prev_index=i))
-                segment_audio = inference_zero_shot(
-                    model_manager=model_manager,
-                    tts_text=segment,
-                    prompt_text=prev_segment_text,
-                    prompt_audio=prev_segment_audio,
-                    prompt_sample_rate=24000,
-                    speed=speed
-                )
-                # 更新提示为当前片段，供下一个片段使用
-                prev_segment_text = segment
-                prev_segment_audio = segment_audio
-                audio_segments.append(segment_audio)
-                
-        except Exception as e:
-            logger.error(t("片段 {index} 合成失败: {error}", index=i + 1, error=e))
-            raise ValueError(t("片段 {index} 合成失败: {error}", index=i + 1, error=e))
-    
-    # 合并音频片段，在片段间添加随机停顿
-    if audio_segments:
-        sample_rate = model_manager.configs['sample_rate']
-        final_audio_parts = []
-        
-        for i, audio_segment in enumerate(audio_segments):
-            final_audio_parts.append(audio_segment)
-            
-            # 在非最后一个片段后添加随机停顿
-            if i < len(audio_segments) - 1:
-                # 生成50-150ms的随机停顿时长
-                pause_duration_ms = random.uniform(50, 150)
-                pause_duration_samples = int(pause_duration_ms * sample_rate / 1000)
-                
-                # 创建静音张量，形状与音频张量匹配
-                silence_shape = list(audio_segment.shape)
-                silence_shape[-1] = pause_duration_samples  # 修改时间维度长度
-                silence = torch.zeros(silence_shape, dtype=audio_segment.dtype, device=audio_segment.device)
-                
-                final_audio_parts.append(silence)
-                logger.info(t("片段 {index} 后添加 {pause_ms:.1f}ms 停顿", index=i + 1, pause_ms=pause_duration_ms))
-        
-        # 使用torch.cat沿着时间维度合并
-        merged_audio = torch.cat(final_audio_parts, dim=-1)
-        logger.info(
-            t(
-                "音频合并完成，总长度: {samples} samples ({seconds:.2f}s)",
-                samples=merged_audio.shape[-1],
-                seconds=merged_audio.shape[-1] / sample_rate,
-            )
-        )
-        return merged_audio
-    else:
-        raise ValueError(t("没有成功合成的音频片段"))
 
 
 # ============================================================================
@@ -688,6 +498,222 @@ def inference_tts(model_manager, text: str, spk_id: str, speed: float = 1.0) -> 
         logger.error(t("TTS推理失败: {error}", error=e))
         raise ValueError(t("TTS推理失败: {error}", error=e))
 
+
+def _flow_chunk_to_pcm(flow, hift, all_tokens, mel_offset, embedding, speed,
+                        device, finalize, prompt_token=None, prompt_token_len=None,
+                        prompt_feat=None, prompt_feat_len=None):
+    """Flow 流式推理 + HiFi-GAN 合成一个 chunk，返回 (pcm_bytes, new_mel_offset)."""
+    token_tensor = torch.tensor(all_tokens).unsqueeze(0)
+    if device == "cuda":
+        token_tensor = token_tensor.cuda()
+
+    flow_kwargs = dict(
+        token=token_tensor,
+        token_len=torch.tensor([len(all_tokens)], dtype=torch.int32).to(token_tensor.device),
+        embedding=embedding,
+        streaming=True,
+        finalize=finalize,
+    )
+    if prompt_token is not None:
+        flow_kwargs.update(
+            prompt_token=prompt_token,
+            prompt_token_len=prompt_token_len,
+            prompt_feat=prompt_feat,
+            prompt_feat_len=prompt_feat_len,
+        )
+
+    mel, _ = flow.inference(**flow_kwargs)
+
+    if mel.shape[2] <= mel_offset:
+        return None, mel_offset
+
+    new_mel = mel[:, :, mel_offset:]
+    new_mel_offset = mel.shape[2]
+
+    if speed != 1.0:
+        new_mel = F.interpolate(new_mel, size=max(1, int(new_mel.shape[2] / speed)), mode='linear')
+
+    tts_speech, _ = hift.inference(speech_feat=new_mel)
+    pcm_bytes = (tts_speech[0].clamp(-1, 1) * 32767).to(torch.int16).cpu().numpy().tobytes()
+    return pcm_bytes, new_mel_offset
+
+
+def streaming_inference_tts(model_manager, text, spk_id, chunk_size=25, speed=1.0):
+    """流式 TTS 推理生成器，逐 chunk yield PCM bytes。
+
+    Args:
+        model_manager: 模型管理器
+        text: 已经过 tn.process_text() 规范化的输入文本
+        spk_id: 说话人 ID
+        chunk_size: 每个 chunk 的 token 数（默认 25 = 1 秒）
+        speed: 语速倍率
+    """
+    if not model_manager.is_loaded:
+        raise ValueError(t("模型未加载"))
+
+    start_time = time.time()
+
+    # 前端处理（text 已在 worker 层通过 tn.process_text() 规范化，
+    # 此处 split=True 仅做分句，不重复规范化）
+    model_input = model_manager.frontend.frontend_sft(text, spk_id)
+
+    flow = model_manager.models['flow']
+    hift = model_manager.models['hift']
+    pre_lookahead_len = flow.pre_lookahead_len
+    embedding = model_input['flow_embedding'].unsqueeze(0)
+
+    # LLM 流式推理
+    generator = model_manager.models['llm'].inference(
+        text=model_input['text'],
+        text_len=model_input['text_len'],
+        prompt_text=torch.tensor([], dtype=torch.int32).to(model_manager.device),
+        prompt_text_len=torch.tensor([0], dtype=torch.int32).to(model_manager.device),
+        prompt_speech_token=None,
+        prompt_speech_token_len=torch.tensor([0], dtype=torch.int32).to(model_manager.device),
+        embedding=model_input['llm_embedding'],
+    )
+
+    all_tokens = []
+    mel_offset = 0
+    chunk_count = 0
+    total_pcm_bytes = 0
+
+    for token in generator:
+        all_tokens.append(token)
+
+        target = (chunk_count + 1) * chunk_size + pre_lookahead_len
+        if len(all_tokens) >= target:
+            pcm_bytes, mel_offset = _flow_chunk_to_pcm(
+                flow, hift, all_tokens, mel_offset, embedding,
+                speed, model_manager.device, finalize=False,
+            )
+            chunk_count += 1
+            if pcm_bytes:
+                total_pcm_bytes += len(pcm_bytes)
+                logger.info(t("流式TTS chunk {n}, tokens={tok}, pcm_size={size}",
+                              n=chunk_count, tok=len(all_tokens), size=len(pcm_bytes)))
+                yield pcm_bytes
+
+    # 最后一个 chunk（finalize）
+    if all_tokens:
+        pcm_bytes, mel_offset = _flow_chunk_to_pcm(
+            flow, hift, all_tokens, mel_offset, embedding,
+            speed, model_manager.device, finalize=True,
+        )
+        if pcm_bytes:
+            chunk_count += 1
+            total_pcm_bytes += len(pcm_bytes)
+            logger.info(t("流式TTS final chunk {n}, tokens={tok}, pcm_size={size}",
+                          n=chunk_count, tok=len(all_tokens), size=len(pcm_bytes)))
+            yield pcm_bytes
+
+    total_time = time.time() - start_time
+    audio_seconds = total_pcm_bytes / 2 / 24000  # int16 = 2 bytes/sample
+    tps = len(all_tokens) / total_time if total_time > 0 else 0
+    logger.info(t("流式TTS完成, chunks={chunks}, tokens={tok}, TPS={tps:.1f}, audio={audio:.2f}s, RTF={rtf:.2f}",
+                  chunks=chunk_count, tok=len(all_tokens), tps=tps,
+                  audio=audio_seconds, rtf=total_time / audio_seconds if audio_seconds > 0 else 0))
+    torch.cuda.empty_cache()
+
+
+def streaming_inference_zero_shot(model_manager, tts_text, prompt_text,
+                                   prompt_audio, prompt_sample_rate,
+                                   chunk_size=25, speed=1.0):
+    """流式 Zero-Shot 推理生成器，逐 chunk yield PCM bytes。
+
+    Args:
+        model_manager: 模型管理器
+        tts_text: 已经过 tn.process_text() 规范化的合成文本
+        prompt_text: 已经过 tn.process_text() 规范化的提示文本
+        prompt_audio: 提示音频 tensor
+        prompt_sample_rate: 提示音频采样率
+        chunk_size: 每个 chunk 的 token 数（默认 25 = 1 秒）
+        speed: 语速倍率
+    """
+    if not model_manager.is_loaded:
+        raise ValueError(t("模型未加载"))
+
+    start_time = time.time()
+
+    # 前端处理（text 已在 worker 层通过 tn.process_text() 规范化）
+    prompt_audio_input = (prompt_audio, prompt_sample_rate)
+
+    model_input = model_manager.frontend.frontend_zero_shot(
+        tts_text,
+        prompt_text,
+        prompt_audio_input,
+        model_manager.configs['sample_rate'],
+        zero_shot_spk_id='',
+    )
+
+    flow = model_manager.models['flow']
+    hift = model_manager.models['hift']
+    pre_lookahead_len = flow.pre_lookahead_len
+
+    # LLM 流式推理（带 prompt）
+    generator = model_manager.models['llm'].inference(
+        text=model_input['text'],
+        text_len=model_input['text_len'],
+        prompt_text=model_input['prompt_text'],
+        prompt_text_len=model_input['prompt_text_len'],
+        prompt_speech_token=model_input['llm_prompt_speech_token'],
+        prompt_speech_token_len=model_input['llm_prompt_speech_token_len'],
+        embedding=model_input['llm_embedding'],
+    )
+
+    all_tokens = []
+    mel_offset = 0
+    chunk_count = 0
+    total_pcm_bytes = 0
+
+    for token in generator:
+        all_tokens.append(token)
+
+        target = (chunk_count + 1) * chunk_size + pre_lookahead_len
+        if len(all_tokens) >= target:
+            pcm_bytes, mel_offset = _flow_chunk_to_pcm(
+                flow, hift, all_tokens, mel_offset,
+                model_input['flow_embedding'],
+                speed, model_manager.device, finalize=False,
+                prompt_token=model_input['flow_prompt_speech_token'],
+                prompt_token_len=model_input['flow_prompt_speech_token_len'],
+                prompt_feat=model_input['prompt_speech_feat'],
+                prompt_feat_len=model_input['prompt_speech_feat_len'],
+            )
+            chunk_count += 1
+            if pcm_bytes:
+                total_pcm_bytes += len(pcm_bytes)
+                logger.info(t("流式ZeroShot chunk {n}, tokens={tok}, pcm_size={size}",
+                              n=chunk_count, tok=len(all_tokens), size=len(pcm_bytes)))
+                yield pcm_bytes
+
+    # 最后一个 chunk（finalize）
+    if all_tokens:
+        pcm_bytes, mel_offset = _flow_chunk_to_pcm(
+            flow, hift, all_tokens, mel_offset,
+            model_input['flow_embedding'],
+            speed, model_manager.device, finalize=True,
+            prompt_token=model_input['flow_prompt_speech_token'],
+            prompt_token_len=model_input['flow_prompt_speech_token_len'],
+            prompt_feat=model_input['prompt_speech_feat'],
+            prompt_feat_len=model_input['prompt_speech_feat_len'],
+        )
+        if pcm_bytes:
+            chunk_count += 1
+            total_pcm_bytes += len(pcm_bytes)
+            logger.info(t("流式ZeroShot final chunk {n}, tokens={tok}, pcm_size={size}",
+                          n=chunk_count, tok=len(all_tokens), size=len(pcm_bytes)))
+            yield pcm_bytes
+
+    total_time = time.time() - start_time
+    audio_seconds = total_pcm_bytes / 2 / 24000
+    tps = len(all_tokens) / total_time if total_time > 0 else 0
+    logger.info(t("流式ZeroShot完成, chunks={chunks}, tokens={tok}, TPS={tps:.1f}, audio={audio:.2f}s, RTF={rtf:.2f}",
+                  chunks=chunk_count, tok=len(all_tokens), tps=tps,
+                  audio=audio_seconds, rtf=total_time / audio_seconds if audio_seconds > 0 else 0))
+    torch.cuda.empty_cache()
+
+
 def zero_shot_tts(model_manager, tts_text, prompt_text, prompt_audio, speed: float = 1.0):
     """
     零样本语音合成接口
@@ -778,34 +804,12 @@ def text_to_speech(model_manager, text, speaker_id, speed: float = 1.0):
                 raise Exception(t("没有可用的说话人"))
         
         # 执行TTS推理
-        segments_info = None
-        if len(text) > 5000:
-            # 长文本使用分段推理
-            logger.info(t("文本长度超过5000字符，使用分段推理"))
-            output_audio = inference_tts_with_segmentation(
-                model_manager,
-                text,
-                speaker_id,
-                max_length=30,
-                min_length=10,
-                last_prompt=False,
-                speed=speed
-            )
-            # 获取分段信息用于响应
-            segments = split_text_by_punctuation(text, 30, 10)
-            segments = merge_short_segments(segments, 10)
-            segments_info = {
-                "total_segments": len(segments),
-                "segments": segments
-            }
-        else:
-            # 短文本直接推理
-            output_audio = inference_tts(
-                model_manager,
-                text,
-                speaker_id,
-                speed=speed
-            )
+        output_audio = inference_tts(
+            model_manager,
+            text,
+            speaker_id,
+            speed=speed
+        )
 
         total_time = time.time() - start_time
         audio_length = output_audio.shape[-1] / model_manager.configs['sample_rate']
@@ -816,7 +820,6 @@ def text_to_speech(model_manager, text, speaker_id, speed: float = 1.0):
                 "format": "wav",
                 "duration": output_audio.shape[-1] / model_manager.configs['sample_rate'],
                 "speaker_id": speaker_id,
-                "segments_info": segments_info
             }
 
     except Exception as e:

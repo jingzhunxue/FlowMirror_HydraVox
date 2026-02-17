@@ -269,6 +269,9 @@ def _load_audio_16k_mono(audio_info: Any) -> torch.Tensor:
 def _extract_speech_token_from_audio(audio_info: Any, onnx_session: ort.InferenceSession) -> List[int]:
     wav_16k = _load_audio_16k_mono(audio_info)
     mel = whisper.log_mel_spectrogram(wav_16k, n_mels=128)
+    max_mel_frames = 2048
+    if mel.shape[2] > max_mel_frames:
+        mel = mel[:, :, :max_mel_frames]
     ort_inputs = {
         onnx_session.get_inputs()[0].name: mel.cpu().numpy(),
         onnx_session.get_inputs()[1].name: np.array([mel.shape[2]], dtype=np.int32),
@@ -313,7 +316,11 @@ class LlmPretrainDataCollator:
                 raise ValueError(t("train.text_tokenizer_missing"))
             special_tokens = _get_added_special_tokens(self.tokenizer)
             for f in features:
-                text = tn.process_text(f["text"])
+                try:
+                    text = tn.process_text(f["text"])
+                except Exception as e:
+                    print(f"Error processing text: {e}")
+                    text = f["text"]
 
                 # 优先：若存在英文单词，随机抽 1 个转 CMU 音素；否则随机抽 2 个中文汉字转拼音(声母/韵母)
                 new_text = _maybe_append_en_cmu_tokens(text, special_tokens)
